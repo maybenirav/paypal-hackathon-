@@ -11,6 +11,10 @@ the ready-to-send body for `POST /v1/billing/plans` (replace `product_id`).
 | type | PayPal webhook |
 |---|---|
 | VISIT | none (our checkout page view) |
+| PAYMENT_FAILED | BILLING.SUBSCRIPTION.PAYMENT.FAILED |
+| REFUND | PAYMENT.SALE.REFUNDED |
+| DISPUTE | CUSTOMER.DISPUTE.CREATED |
+| CANCEL_INTENT | none (our cancel-flow click) |
 | SIGNUP | BILLING.SUBSCRIPTION.ACTIVATED |
 | PAYMENT | PAYMENT.SALE.COMPLETED (`amount` = sale total) |
 | CANCELLED | BILLING.SUBSCRIPTION.CANCELLED |
@@ -29,6 +33,11 @@ Person D posts simulated events to the same route.
 | `GET /experiments/{id}/metrics?days=` | per-arm rows (visitors, signups, conversion, churn, MRR, LTV, Z, retention, status) + weekly MRR series |
 | `POST /experiments/{id}/decide?gamma=&days=` | run engine; stops an arm or picks a winner and records it |
 | `POST /experiments/{id}/ask` `{question}` | assistant: returns `answer`, filtered/sorted `rows`, `filter`, `chart` |
+| `GET /experiments/{id}/allocation`, `POST /experiments/{id}/assign` | Thompson traffic split / pick an arm for a new sign-up |
+| `GET/PUT /experiments/{id}/guardrails` | retention floor, refund and dispute ceilings, status per arm |
+| `POST /experiments/{id}/rollout/propose`, `.../approve` | winner rollout, merchant approves in one click |
+| `GET /memory` | past settled experiments |
+| `GET/PUT /save/rules`, `POST /save/handle`, `POST /save/sweep`, `GET /save/log`, `POST /save/log/{id}/override` | Save Agent |
 | `POST /agent/arms`, `POST /engine/decide` | stateless variants |
 
 ## Notes

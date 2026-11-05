@@ -37,6 +37,8 @@ export type Row = {
   arm_id: string; name: string; is_baseline: boolean; visitors: number; signups: number;
   churned: number; active: number; conversion: number; churn: number; mrr: number;
   revenue: number; ltv: number; z: number | null; status: string; retention: number[];
+  conv_ci: [number, number]; prob_best: number; allocation: number;
+  refund_rate: number; dispute_rate: number;
 };
 export type Metrics = {
   id: string; status: string; winner: string | null; stopped_arms: string[];
@@ -59,3 +61,20 @@ export const getMetrics = (id: string) => get<Metrics>(`/experiments/${id}/metri
 export const decideExperiment = (id: string) => post<DecisionResponse>(`/experiments/${id}/decide`, {});
 export const askAssistant = (id: string, question: string) =>
   post<AskResponse>(`/experiments/${id}/ask`, { question });
+
+export type GuardrailArm = { arm_id: string; ok: boolean; retention: number; refund_rate: number; dispute_rate: number; breaches: string[] };
+export type Rollout = { kind: string; status: "proposed" | "approved"; winner: string; requests: { method: string; path: string }[] };
+export type SaveAction = {
+  id: string; ts: string; status: string; kind: "pause" | "downgrade" | "discount" | "let_go";
+  rationale: string; subscriber_id: string; trigger: string; arm_id: string | null;
+  overridden_by: string | null; override_note: string; paypal_request: { method: string; path: string };
+};
+export type SaveLog = { summary: { total: number; saves: number; let_go: number; overridden: number }; actions: SaveAction[] };
+
+export const getGuardrails = (id: string) => get<{ arms: GuardrailArm[] }>(`/experiments/${id}/guardrails`);
+export const proposeRollout = (id: string) => post<Rollout>(`/experiments/${id}/rollout/propose`, {});
+export const approveRollout = (id: string) => post<Rollout>(`/experiments/${id}/rollout/approve`, {});
+export const saveSweep = () => post<{ handled: number }>("/save/sweep?limit=25", {});
+export const getSaveLog = () => get<SaveLog>("/save/log");
+export const overrideSave = (id: string, kind: string, note: string) =>
+  post<SaveAction>(`/save/log/${id}/override`, { kind, note });

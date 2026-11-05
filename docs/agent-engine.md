@@ -6,7 +6,7 @@
 cd backend
 pip install -r requirements.txt
 cp .env.example .env        # optional: GEMINI_API_KEY enables Gemini; without it a deterministic fallback is used
-python -m pytest            # 28 tests, hand-calculated expectations
+python -m pytest            # 48 tests, hand-calculated expectations
 uvicorn app.main:app --reload
 
 cd frontend
@@ -40,3 +40,5 @@ Not yet verified against a real APIMatic account; confirm access before claiming
 - `churned`/`signups` are cumulative counts per arm at the decision time.
 - `price` in decide requests is the monthly-equivalent revenue (annual price / 12).
 - The frontend results table uses editable sample numbers until Person A's API exposes real metrics.
+
+See `docs/v2-plan.md` for the v2 scope, status and hand-offs.
