@@ -6,7 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-EventType = Literal["VISIT", "SIGNUP", "PAYMENT", "CANCELLED", "DENIED"]
+EventType = Literal["VISIT", "SIGNUP", "PAYMENT", "CANCELLED", "DENIED",
+                    "PAYMENT_FAILED", "REFUND", "DISPUTE", "CANCEL_INTENT"]
 
 # How real PayPal webhook event_types map onto our shared types.
 PAYPAL_EVENT_MAP: dict[str, EventType] = {
@@ -14,6 +15,9 @@ PAYPAL_EVENT_MAP: dict[str, EventType] = {
     "PAYMENT.SALE.COMPLETED": "PAYMENT",
     "BILLING.SUBSCRIPTION.CANCELLED": "CANCELLED",
     "PAYMENT.SALE.DENIED": "DENIED",
+    "BILLING.SUBSCRIPTION.PAYMENT.FAILED": "PAYMENT_FAILED",
+    "PAYMENT.SALE.REFUNDED": "REFUND",
+    "CUSTOMER.DISPUTE.CREATED": "DISPUTE",
 }
 
 

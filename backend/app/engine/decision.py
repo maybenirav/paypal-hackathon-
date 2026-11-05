@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .bayes import credible_interval, posterior, prob_beats
 from .guardrail import DEFAULT_GAMMA, GuardrailResult, check_guardrail
 from .ltv import ltv_12m, survival_from_churn
 from .stats import ZTestResult, two_proportion_z
@@ -33,6 +34,8 @@ class ArmAnalysis:
     ltv: float
     ztest: ZTestResult | None
     guardrail: GuardrailResult | None
+    prob_beats_baseline: float | None = None
+    conv_ci: tuple[float, float] | None = None
 
 
 @dataclass
@@ -50,7 +53,8 @@ def _ltv(arm: ArmStats, discount: float) -> tuple[float, float]:
 
 
 def decide(baseline: ArmStats, arms: list[ArmStats], gamma: float = DEFAULT_GAMMA,
-           discount: float = 0.01) -> Decision:
+           discount: float = 0.01, method: str = "z",
+           win_prob: float = 0.95) -> Decision:
     """Evaluate every challenger against the baseline.
 
     1. Any arm tripping the guardrail is stopped (first one reported).
@@ -76,9 +80,16 @@ def decide(baseline: ArmStats, arms: list[ArmStats], gamma: float = DEFAULT_GAMM
              if baseline.signups and arm.signups else None)
         a = ArmAnalysis(arm.arm_id, arm.signups / arm.visitors if arm.visitors else 0.0,
                         churn, ltv, z, g)
+        if arm.visitors and baseline.visitors:
+            pa = posterior(arm.signups, arm.visitors)
+            a.prob_beats_baseline = prob_beats(pa, posterior(baseline.signups, baseline.visitors))
+            a.conv_ci = credible_interval(pa)
         analyses.append(a)
         if g and g.triggered:
             stopped.append(a)
+        elif method == "bayes":
+            if a.prob_beats_baseline is not None and a.prob_beats_baseline >= win_prob and ltv > base_ltv:
+                candidates.append(a)
         elif z and z.significant and z.z > 0 and ltv > base_ltv:
             candidates.append(a)
 
@@ -92,8 +103,11 @@ def decide(baseline: ArmStats, arms: list[ArmStats], gamma: float = DEFAULT_GAMM
         return Decision(Action.STOP_ARM, stopped[0].arm_id, analyses, reasons)
     if candidates:
         best = max(candidates, key=lambda a: a.ltv)
+        evidence = (f"P(beats baseline)={best.prob_beats_baseline:.1%}, 95% credible interval "
+                    f"{best.conv_ci[0]:.1%} to {best.conv_ci[1]:.1%}" if method == "bayes"
+                    else f"Z={best.ztest.z:.2f}")
         reasons[best.arm_id] = (
             f"Conversion {best.conversion:.1%} vs {analyses[0].conversion:.1%} "
-            f"(Z={best.ztest.z:.2f}), 12-month LTV {best.ltv:.2f} vs {base_ltv:.2f}.")
+            f"({evidence}), 12-month LTV {best.ltv:.2f} vs {base_ltv:.2f}.")
         return Decision(Action.WINNER, best.arm_id, analyses, reasons)
     return Decision(Action.KEEP_TESTING, None, analyses, reasons)

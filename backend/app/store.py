@@ -5,6 +5,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 
+from .engine.guardrails import GuardrailConfig
 from .events import Event
 from .schemas import Arm
 
@@ -19,6 +20,8 @@ class Experiment:
     stopped_arms: list[str] = field(default_factory=list)
     winner: str | None = None
     events: list[Event] = field(default_factory=list)
+    guardrails: GuardrailConfig = field(default_factory=GuardrailConfig)
+    rollout: dict | None = None
 
 
 class Store:

@@ -6,6 +6,7 @@ import os
 
 import httpx
 
+from ..memory import Memory, adapt_fallback, memory as default_memory
 from ..schemas import Arm, GoalRequest
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -36,7 +37,7 @@ def fallback_arms(req: GoalRequest) -> list[Arm]:
     return arms[:req.num_arms]
 
 
-def _gemini(req: GoalRequest, key: str, model: str) -> list[Arm]:
+def _gemini(req: GoalRequest, key: str, model: str, mem: Memory) -> list[Arm]:
     prompt = (SYSTEM_PROMPT.format(n=req.num_arms, currency=req.currency)
               + f"\n\nCurrent monthly price: {req.current_price} {req.currency}."
               + f"\nMerchant goal: {req.goal}")
@@ -58,12 +59,13 @@ def _gemini(req: GoalRequest, key: str, model: str) -> list[Arm]:
     return arms
 
 
-def generate_arms(req: GoalRequest) -> tuple[list[Arm], str]:
+def generate_arms(req: GoalRequest, mem: Memory | None = None) -> tuple[list[Arm], str]:
     """Returns (arms, source) where source is 'gemini' or 'fallback'."""
+    mem = mem if mem is not None else default_memory
     key = os.getenv("GEMINI_API_KEY")
     if key:
         try:
-            return _gemini(req, key, os.getenv("GEMINI_MODEL", "gemini-2.0-flash")), "gemini"
+            return _gemini(req, key, os.getenv("GEMINI_MODEL", "gemini-2.0-flash"), mem), "gemini"
         except Exception:  # network, bad JSON, bad schema -> degrade gracefully
             pass
-    return fallback_arms(req), "fallback"
+    return adapt_fallback(fallback_arms(req.model_copy(update={"num_arms": 4})), mem)[:req.num_arms], "fallback"

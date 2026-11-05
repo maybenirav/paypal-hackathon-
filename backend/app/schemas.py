@@ -16,6 +16,7 @@ class Arm(BaseModel):
     setup_fee: float = Field(default=0, ge=0)
     is_baseline: bool = False
     reason: str = ""
+    plan_id: str | None = None   # PayPal plan id, set once Person A creates the plan
 
     @property
     def monthly_equivalent(self) -> float:

@@ -12,6 +12,7 @@ from .schemas import Arm
 def aggregate(arms: list[Arm], events: list[Event], as_of: datetime | None = None) -> dict:
     by_arm: dict[str, dict] = {a.arm_id: {
         "visitors": 0, "signups": 0, "churned": 0, "revenue": 0.0, "denied": 0,
+        "payments": 0, "refunds": 0, "disputes": 0, "failed": 0,
         "signup_ts": {}, "cancel_ts": {}} for a in arms}
     for e in events:
         if e.arm_id not in by_arm or (as_of and e.ts > as_of):
@@ -27,6 +28,14 @@ def aggregate(arms: list[Arm], events: list[Event], as_of: datetime | None = Non
             m["cancel_ts"][e.subscriber_id] = e.ts
         elif e.type == "PAYMENT":
             m["revenue"] += e.amount
+            m["payments"] += 1
+        elif e.type == "REFUND":
+            m["refunds"] += 1
+            m["revenue"] -= e.amount
+        elif e.type == "DISPUTE":
+            m["disputes"] += 1
+        elif e.type == "PAYMENT_FAILED":
+            m["failed"] += 1
         elif e.type == "DENIED":
             m["denied"] += 1
 
@@ -42,6 +51,10 @@ def aggregate(arms: list[Arm], events: list[Event], as_of: datetime | None = Non
             "conversion": m["signups"] / m["visitors"] if m["visitors"] else 0.0,
             "churn": m["churned"] / m["signups"] if m["signups"] else 0.0,
             "revenue": round(m["revenue"], 2),
+            "payments": m["payments"], "refunds": m["refunds"], "disputes": m["disputes"],
+            "failed_payments": m["failed"],
+            "refund_rate": m["refunds"] / m["payments"] if m["payments"] else 0.0,
+            "dispute_rate": m["disputes"] / m["signups"] if m["signups"] else 0.0,
             "mrr": round(active * a.monthly_equivalent, 2),
             "retention": _retention(m["signup_ts"], m["cancel_ts"]),
         }
