@@ -5,3 +5,5 @@ __pycache__/
 .pytest_cache/
 node_modules/
 .next/
+*.tsbuildinfo
+next-env.d.ts
