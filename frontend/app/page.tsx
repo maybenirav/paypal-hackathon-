@@ -1,18 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { decide, generateArms, type Arm, type ArmInput, type ArmsResponse, type DecisionResponse } from "./api";
+import {
+  askAssistant, createExperiment, decideExperiment, getMetrics, runDemo,
+  type AskResponse, type DecisionResponse, type Experiment, type Metrics,
+} from "./api";
+import MrrChart from "./MrrChart";
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-const monthly = (a: Arm) => (a.interval === "YEAR" ? a.price / 12 : a.price);
 
 export default function Home() {
   const [goal, setGoal] = useState("Raise annual-plan uptake without hurting 60-day retention.");
   const [price, setPrice] = useState(10);
   const [numArms, setNumArms] = useState(3);
-  const [arms, setArms] = useState<ArmsResponse | null>(null);
-  const [stats, setStats] = useState<Record<string, ArmInput>>({});
+  const [exp, setExp] = useState<Experiment | null>(null);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [decision, setDecision] = useState<DecisionResponse | null>(null);
+  const [question, setQuestion] = useState("show arms with churn above baseline");
+  const [answer, setAnswer] = useState<AskResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,26 +27,32 @@ export default function Home() {
   }
 
   async function onGenerate() {
-    const res = await run(() => generateArms(goal, price, numArms));
-    if (!res) return;
-    setArms(res); setDecision(null);
-    const s: Record<string, ArmInput> = {};
-    res.arms.forEach((a) => {
-      s[a.arm_id] = { arm_id: a.arm_id, price: +monthly(a).toFixed(2), visitors: 1000, signups: 100, churned: 10 };
-    });
-    setStats(s);
+    const res = await run(() => createExperiment(goal, price, numArms));
+    if (res) { setExp(res); setMetrics(null); setDecision(null); setAnswer(null); }
+  }
+
+  async function onDemo(scenario: "winner" | "guardrail") {
+    if (!exp) return;
+    const m = await run(async () => { await runDemo(exp.id, scenario); return getMetrics(exp.id); });
+    if (m) { setMetrics(m); setDecision(null); setAnswer(null); }
   }
 
   async function onDecide() {
-    if (!arms) return;
-    const base = arms.arms.find((a) => a.is_baseline) ?? arms.arms[0];
-    const others = arms.arms.filter((a) => a.arm_id !== base.arm_id).map((a) => stats[a.arm_id]);
-    const res = await run(() => decide(stats[base.arm_id], others, goal));
-    if (res) setDecision(res);
+    if (!exp) return;
+    const d = await run(() => decideExperiment(exp.id));
+    if (!d) return;
+    setDecision(d);
+    const m = await run(() => getMetrics(exp.id));
+    if (m) setMetrics(m);
   }
 
-  const setStat = (id: string, k: keyof ArmInput, v: number) =>
-    setStats((s) => ({ ...s, [id]: { ...s[id], [k]: v } }));
+  async function onAsk() {
+    if (!exp) return;
+    const a = await run(() => askAssistant(exp.id, question));
+    if (a) setAnswer(a);
+  }
+
+  const rows = answer?.rows ?? metrics?.rows ?? [];
 
   return (
     <main>
@@ -63,14 +74,14 @@ export default function Home() {
         {error && <p className="err">{error}</p>}
       </section>
 
-      {arms && (
+      {exp && (
         <section className="card">
-          <h2>2. Proposed arms <span className="sub">({arms.source === "gemini" ? "Gemini" : "offline fallback"})</span></h2>
+          <h2>2. Proposed arms <span className="sub">({exp.source === "gemini" ? "Gemini" : "offline fallback"})</span></h2>
           <table>
             <thead><tr><th>Arm</th><th>Price</th><th>Trial</th><th>Why</th><th>PayPal check</th></tr></thead>
             <tbody>
-              {arms.arms.map((a) => {
-                const v = arms.validation.find((x) => x.arm_id === a.arm_id);
+              {exp.arms.map((a) => {
+                const v = exp.validation.find((x) => x.arm_id === a.arm_id);
                 return (
                   <tr key={a.arm_id}>
                     <td>{a.name}{a.is_baseline && " (baseline)"}</td>
@@ -84,27 +95,36 @@ export default function Home() {
               })}
             </tbody>
           </table>
+          <div className="row">
+            <button disabled={busy} onClick={() => onDemo("winner")}>Run demo: winner</button>
+            <button disabled={busy} onClick={() => onDemo("guardrail")}>Run demo: guardrail</button>
+          </div>
         </section>
       )}
 
-      {arms && (
+      {metrics && (
         <section className="card">
-          <h2>3. Results so far <span className="sub">(sample numbers, edit them; the live API feeds this later)</span></h2>
-          <table className="num">
-            <thead><tr><th>Arm</th><th>Visitors</th><th>Sign-ups</th><th>Churned</th></tr></thead>
+          <h2>3. Live results <span className="sub">(60 simulated days; events use the shared event format)</span></h2>
+          <table>
+            <thead><tr><th>Arm</th><th>Visitors</th><th>Sign-ups</th><th>Conv.</th><th>Churn</th><th>MRR</th><th>LTV</th><th>Z</th><th>Status</th></tr></thead>
             <tbody>
-              {arms.arms.map((a) => (
-                <tr key={a.arm_id}>
-                  <td>{a.name}</td>
-                  {(["visitors", "signups", "churned"] as const).map((k) => (
-                    <td key={k}><input type="number" min={0} value={stats[a.arm_id]?.[k] ?? 0}
-                      onChange={(e) => setStat(a.arm_id, k, +e.target.value)} /></td>
-                  ))}
+              {rows.map((r) => (
+                <tr key={r.arm_id}>
+                  <td>{r.name}{r.is_baseline && " (baseline)"}</td><td>{r.visitors}</td><td>{r.signups}</td>
+                  <td>{pct(r.conversion)}</td><td>{pct(r.churn)}</td><td>${r.mrr.toFixed(0)}</td>
+                  <td>${r.ltv.toFixed(2)}</td><td>{r.z ?? "-"}</td>
+                  <td><span className={`badge ${r.status === "stopped" ? "bad" : r.status === "winner" ? "ok" : ""}`}>{r.status}</span></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div className="row"><button disabled={busy} onClick={onDecide}>Run analysis</button></div>
+          <MrrChart series={metrics.mrr_series} arms={metrics.rows.map((r) => r.arm_id)} />
+          <div className="row">
+            <button disabled={busy} onClick={onDecide}>Run analysis</button>
+            <input style={{ flex: 1, minWidth: 240 }} value={question} onChange={(e) => setQuestion(e.target.value)} />
+            <button disabled={busy} onClick={onAsk}>Ask assistant</button>
+          </div>
+          {answer && <p>{answer.answer}</p>}
         </section>
       )}
 
@@ -113,19 +133,6 @@ export default function Home() {
           <h2>{{ stop_arm: "Guardrail fired", winner: "Winner chosen", keep_testing: "Keep testing" }[decision.action]}
             {decision.arm_id && `: ${decision.arm_id}`}</h2>
           <p>{decision.explanation}</p>
-          <table>
-            <thead><tr><th>Arm</th><th>Conversion</th><th>Churn</th><th>12-mo LTV</th><th>Z</th><th>Churn ratio</th></tr></thead>
-            <tbody>
-              {decision.arms.map((a) => (
-                <tr key={a.arm_id}>
-                  <td>{a.arm_id}</td><td>{pct(a.conversion)}</td><td>{pct(a.churn)}</td>
-                  <td>${a.ltv.toFixed(2)}</td>
-                  <td>{a.ztest ? a.ztest.z.toFixed(2) : "-"}</td>
-                  <td>{a.guardrail ? (a.guardrail.ratio == null ? "inf" : a.guardrail.ratio.toFixed(2) + "x") : "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </section>
       )}
     </main>

@@ -6,7 +6,7 @@
 cd backend
 pip install -r requirements.txt
 cp .env.example .env        # optional: GEMINI_API_KEY enables Gemini; without it a deterministic fallback is used
-python -m pytest            # 21 tests, hand-calculated expectations
+python -m pytest            # 28 tests, hand-calculated expectations
 uvicorn app.main:app --reload
 
 cd frontend
