@@ -26,6 +26,8 @@ from .store import Experiment, store
 from .validation import validate_arms
 
 app = FastAPI(title="PlanLab Agent & Math Engine")
+from app.paypal_routes import router as paypal_router
+app.include_router(paypal_router)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
