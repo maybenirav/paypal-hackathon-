@@ -17,3 +17,13 @@ PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET", "")
 PAYPAL_PRODUCT_ID = os.getenv("PAYPAL_PRODUCT_ID", "")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:5173"
+
+# Where PayPal sends the buyer after approving / cancelling a subscription
+PAYPAL_RETURN_URL = os.getenv("PAYPAL_RETURN_URL") or f"{FRONTEND_URL}/subscribe/success"
+PAYPAL_CANCEL_URL = os.getenv("PAYPAL_CANCEL_URL") or f"{FRONTEND_URL}/subscribe/cancel"
+PAYPAL_BRAND_NAME = os.getenv("PAYPAL_BRAND_NAME") or "PlanLab Demo"
+
+# Webhooks: the ID shown in the PayPal dashboard after adding the webhook URL.
+# Set PAYPAL_WEBHOOK_VERIFY=false ONLY for local testing with hand-made events.
+PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID", "")
+PAYPAL_WEBHOOK_VERIFY = (os.getenv("PAYPAL_WEBHOOK_VERIFY") or "true").lower() != "false"
