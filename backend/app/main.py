@@ -31,6 +31,9 @@ app.include_router(paypal_router)
 from app.paypal_experiments import router as paypal_exp_router, webhook_router
 app.include_router(paypal_exp_router)
 app.include_router(webhook_router)
+from app.sim_routes import router as sim_router
+app.include_router(sim_router)
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
