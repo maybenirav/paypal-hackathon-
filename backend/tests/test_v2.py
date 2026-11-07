@@ -86,28 +86,67 @@ def ctx(**kw):
     return SubscriberContext(**{**base, **kw})
 
 
+PLANS = dict(downgrade_plan_id="P-CHEAP", discount_plan_id="P-DISC")
+
+
 def test_policy_by_reason():
-    r = SaveRules(downgrade_plan_id="P-CHEAP")
+    r = SaveRules(**PLANS)
     assert choose_offer(ctx(), r).kind == "pause"
     assert choose_offer(ctx(trigger="CANCEL_INTENT", reason_hint="price"), r).kind == "discount"
     assert choose_offer(ctx(trigger="CANCEL_INTENT"), r).kind == "downgrade"
 
 
 def test_policy_respects_rules_and_limits():
-    assert choose_offer(ctx(), SaveRules(allow_pause=False, downgrade_plan_id=None)).kind == "discount"
+    assert choose_offer(ctx(), SaveRules(allow_pause=False, discount_plan_id="P-DISC")).kind == "discount"
     assert choose_offer(ctx(), SaveRules(allow_pause=False, allow_discount=False)).kind == "let_go"
+    # A real subscriber is never offered a plan switch to a plan that doesn't exist in PayPal...
+    assert choose_offer(ctx(), SaveRules(allow_pause=False)).kind == "let_go"
+    # ...while simulated subscribers can exercise every offer as a dry run.
+    sim = choose_offer(ctx(simulated=True), SaveRules(allow_pause=False))
+    assert sim.kind == "downgrade" and sim.paypal_request["simulated"]
     assert choose_offer(ctx(previous_saves=1), SaveRules()).kind == "let_go"
     assert choose_offer(ctx(payments_made=0), SaveRules()).kind == "let_go"
 
 
-def test_discount_request_math():
-    o = choose_offer(ctx(trigger="CANCEL_INTENT", reason_hint="price"), SaveRules(max_discount_pct=20))
-    cycle = o.paypal_request["body"]["plan"]["billing_cycles"][0]
-    assert cycle["pricing_scheme"]["fixed_price"]["value"] == "8.00" and cycle["total_cycles"] == 3
+def test_discount_is_a_real_plan_switch():
+    o = choose_offer(ctx(trigger="CANCEL_INTENT", reason_hint="price"), SaveRules(**PLANS))
     assert o.paypal_request["path"].endswith("/I-1/revise")
+    assert o.paypal_request["body"] == {"plan_id": "P-DISC"}
+    assert "8.00 USD" in o.message
+
+
+def test_discount_plan_payload_math():
+    from app.paypal_plans import build_discount_plan_payload
+    from app.schemas import Arm
+    p = build_discount_plan_payload(Arm(arm_id="b", name="Base", price=10), 20, 3, "PROD")
+    trial, regular = p["billing_cycles"]
+    assert trial["tenure_type"] == "TRIAL" and trial["total_cycles"] == 3
+    assert trial["pricing_scheme"]["fixed_price"]["value"] == "8.00"
+    assert regular["tenure_type"] == "REGULAR" and regular["sequence"] == 2
+    assert regular["pricing_scheme"]["fixed_price"]["value"] == "10.00"
+
+
+def test_reason_text_is_classified_without_llm():
+    from app.save_agent import classify_reason
+    assert classify_reason("honestly it's too expensive", use_llm=False)[0] == "price"
+    assert classify_reason("travelling for a month", use_llm=False)[0] == "not_using"
+    a = client.post("/save/handle", json=ctx(trigger="CANCEL_INTENT",
+                                              reason_text="Found a cheaper option").model_dump())
+    assert a.json()["reason_hint"] == "price"
+
+
+def test_pause_is_reactivated_by_sweep():
+    from datetime import datetime, timedelta
+    from app.save_agent import save_log
+    a = save_log.handle(ctx(), now=datetime.utcnow() - timedelta(days=31))
+    assert a.offer.kind == "pause" and a.resume_at is not None
+    resumed = save_log.resume_due(datetime.utcnow())
+    assert [x.id for x in resumed] == [a.id] and a.resumed
+    assert a.result["resume"]["request"]["path"].endswith("/activate")
 
 
 def test_save_api_log_and_override():
+    client.put("/save/rules", json=SaveRules(**PLANS).model_dump())
     a = client.post("/save/handle", json=ctx().model_dump()).json()
     assert a["kind"] == "pause" and a["status"] == "dry_run"
     # second failure for the same subscriber: save limit reached -> let go
@@ -181,7 +220,8 @@ def test_rollout_requires_winner_then_proposes_and_approves():
     assert client.post(f"/experiments/{eid}/decide").json()["action"] == "winner"
     p = client.post(f"/experiments/{eid}/rollout/propose").json()
     assert p["status"] == "proposed" and p["winner"] == "annual_discount"
-    assert p["kind"] == "switch_default_plan"          # annual vs monthly baseline
+    assert p["kind"] == "new_signups_only"             # annual vs monthly baseline
+    assert p["grandfathered"]                          # existing subscribers keep their price
     assert sum("/deactivate" in r["path"] for r in p["requests"]) == 2
     a = client.post(f"/experiments/{eid}/rollout/approve").json()
     assert a["status"] == "approved" and len(a["results"]) == len(a["requests"])

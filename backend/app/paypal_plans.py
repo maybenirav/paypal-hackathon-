@@ -44,3 +44,23 @@ def build_plan_payload(arm: Arm, product_id: str, exp_id: str) -> dict:
         "billing_cycles": cycles,
         "payment_preferences": prefs,
     }
+
+
+def build_discount_plan_payload(base: Arm, pct: int, cycles: int, product_id: str) -> dict:
+    """Save Agent discount plan: `cycles` cycles at (100 - pct)% of the price, then full price.
+
+    PayPal allows only one REGULAR cycle per plan, so the discounted months are a paid TRIAL
+    cycle (PayPal's "discounted trial"), followed by the normal REGULAR cycle.
+    """
+    discounted = round(base.price * (1 - pct / 100), 2)
+    payload = build_plan_payload(base.model_copy(update={
+        "name": f"{base.name} - save offer {pct}% off x{cycles}", "trial_days": 0,
+        "setup_fee": 0, "reason": f"Save Agent: {pct}% off for {cycles} cycles"}),
+        product_id, "save")
+    payload["billing_cycles"] = [
+        {"frequency": {"interval_unit": base.interval, "interval_count": 1},
+         "tenure_type": "TRIAL", "sequence": 1, "total_cycles": cycles,
+         "pricing_scheme": {"fixed_price": _money(discounted, base.currency)}},
+        {**payload["billing_cycles"][-1], "sequence": 2},
+    ]
+    return payload

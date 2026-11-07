@@ -13,11 +13,12 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app import config, simulate
+from app import config, paypal_sdk, simulate
+from app.local_db import db
 from app.events import PAYPAL_EVENT_MAP, Event
 from app.paypal_client import PayPalError, paypal_request
 from app.paypal_plans import build_plan_payload
@@ -28,12 +29,21 @@ log = logging.getLogger("planlab.paypal")
 router = APIRouter(prefix="/experiments", tags=["paypal"])
 webhook_router = APIRouter(tags=["paypal-webhooks"])
 
-# subscription id -> (experiment id, arm id). In memory, like the experiment store.
-_subs: dict[str, tuple[str, str]] = {}
-_seen_webhooks: set[str] = set()
-# subscription id -> {"status", "approve_url"}; webhook log waiting to be saved
+# subscription id -> (experiment id, arm id), persisted in SQLite.
+_subs: dict[str, tuple[str, str]] = {d["sub"]: (d["exp"], d["arm"]) for d in db.all("paypal_sub")}
+_seen_webhooks: set[str] = {d["id"] for d in db.all("webhook_seen")}
+# subscription id -> {"status", "approve_url"}; webhook log waiting to be saved (app.db, Supabase)
 _sub_meta: dict[str, dict] = {}
 _webhook_log: list[tuple[str, str, dict]] = []
+
+
+def remember_sub(sub_id: str, exp_id: str, arm_id: str) -> None:
+    _subs[sub_id] = (exp_id, arm_id)
+    db.put("paypal_sub", sub_id, {"sub": sub_id, "exp": exp_id, "arm": arm_id})
+
+
+def lookup_sub(sub_id: str) -> tuple[str, str] | None:
+    return _resolve(sub_id, None)
 
 # Event types a subscriber can only have once (PAYMENT can repeat every cycle)
 ONE_TIME_TYPES = {"VISIT", "SIGNUP", "CANCELLED"}
@@ -98,12 +108,12 @@ def _resolve(sub_id: str | None, custom: str | None) -> tuple[str, str] | None:
     if found or not sub_id:
         return found
     try:
-        sub = paypal_request("GET", f"/v1/billing/subscriptions/{sub_id}")
+        sub = paypal_sdk.get_subscription(sub_id)
     except PayPalError:
         return None
     found = _parse_custom(sub.get("custom_id"))
     if found:
-        _subs[sub_id] = found
+        remember_sub(sub_id, *found)
     return found
 
 
@@ -123,13 +133,15 @@ def publish_plans(exp_id: str):
             continue
         payload = build_plan_payload(arm, config.PAYPAL_PRODUCT_ID, exp.id)
         try:
-            plan = paypal_request("POST", "/v1/billing/plans", json=payload)
+            plan = paypal_sdk.create_plan(payload)
         except PayPalError as e:
+            store.save(exp)  # keep plan ids created before the failure
             raise _bad_gateway(e) from e
         arm.plan_id = plan["id"]
         results.append({"arm_id": arm.arm_id, "plan_id": arm.plan_id,
                         "created": True, "status": plan.get("status")})
-    return {"experiment_id": exp.id, "plans": results}
+    store.save(exp)
+    return {"experiment_id": exp.id, "sdk": paypal_sdk.SDK_NAME, "plans": results}
 
 
 @router.get("/{exp_id}/paypal/plans")
@@ -155,6 +167,8 @@ def subscribe(exp_id: str, req: SubscribeRequest | None = None):
 
     if req and req.arm_id:
         arm_id = req.arm_id
+    elif exp.rollout and exp.rollout.get("status") == "approved":
+        arm_id = exp.rollout["winner"]  # experiment settled: every new sign-up gets the winner
     else:
         from app.main import assign  # imported here to avoid a circular import
         arm_id = assign(exp_id)["arm_id"]
@@ -179,14 +193,13 @@ def subscribe(exp_id: str, req: SubscribeRequest | None = None):
         },
     }
     try:
-        sub = paypal_request("POST", "/v1/billing/subscriptions", json=body)
+        sub = paypal_sdk.create_subscription(body)
     except PayPalError as e:
         raise _bad_gateway(e) from e
 
     sub_id = sub["id"]
-    _subs[sub_id] = (exp.id, arm.arm_id)
-    approve_url = next((link["href"] for link in sub.get("links", [])
-                        if link.get("rel") == "approve"), None)
+    remember_sub(sub_id, exp.id, arm.arm_id)
+    approve_url = paypal_sdk.approve_url(sub)
     _sub_meta[sub_id] = {"status": sub.get("status"), "approve_url": approve_url}
 
     # Reaching checkout counts as a visit for this arm's conversion rate
@@ -202,7 +215,7 @@ def sync_subscription(exp_id: str, subscription_id: str):
     """Backup for webhooks: read the subscription from PayPal and record what changed."""
     exp = _exp(exp_id)
     try:
-        sub = paypal_request("GET", f"/v1/billing/subscriptions/{subscription_id}")
+        sub = paypal_sdk.get_subscription(subscription_id)
     except PayPalError as e:
         raise _bad_gateway(e) from e
 
@@ -220,12 +233,73 @@ def sync_subscription(exp_id: str, subscription_id: str):
         if _add_once(exp, Event(experiment_id=exp.id, arm_id=arm_id, subscriber_id=subscription_id,
                                 type="SIGNUP", ts=ts, source="real")):
             added.append("SIGNUP")
+    last = (sub.get("billing_info") or {}).get("last_payment") or {}
+    if last.get("time") and not any(e.subscriber_id == subscription_id and e.type == "PAYMENT"
+                                    for e in exp.events):
+        amount = float((last.get("amount") or {}).get("value") or 0)
+        store.add_events(exp, [Event(experiment_id=exp.id, arm_id=arm_id,
+                                     subscriber_id=subscription_id, type="PAYMENT",
+                                     ts=_parse_ts(last["time"]), amount=amount, source="real")])
+        added.append("PAYMENT")
     if status == "CANCELLED":
         ts = _parse_ts(sub.get("status_update_time"))
         if _add_once(exp, Event(experiment_id=exp.id, arm_id=arm_id, subscriber_id=subscription_id,
                                 type="CANCELLED", ts=ts, source="real")):
             added.append("CANCELLED")
     return {"subscription_id": subscription_id, "arm_id": arm_id, "status": status, "added": added}
+
+
+# ---------- Stage 3b: real sandbox sign-ups via KERNEL ----------
+
+_jobs: dict[str, dict] = {}
+
+
+class KernelCheckoutRequest(BaseModel):
+    count: int = 1
+    buyer: int = 1
+
+
+def _run_checkouts(job_id: str, exp_id: str, count: int, buyer_n: int) -> None:
+    from app import kernel_bot
+    job = _jobs[job_id]
+    for i in range(count):
+        try:
+            sub = subscribe(exp_id, None)
+            res = kernel_bot.approve(sub["approve_url"], buyer_n=buyer_n)
+            synced = None
+            for _ in range(10):  # webhook may not be configured locally: pull the status too
+                synced = sync_subscription(exp_id, sub["subscription_id"])
+                if synced["status"] == "ACTIVE":
+                    break
+                import time
+                time.sleep(3)
+            job["results"].append({"subscription_id": sub["subscription_id"], "arm_id": sub["arm_id"],
+                                   "status": synced and synced["status"],
+                                   "approved": res.get("approved")})
+        except Exception as e:  # keep going; report per checkout
+            job["results"].append({"error": str(e)[:300]})
+    job["status"] = "done"
+
+
+@router.post("/{exp_id}/kernel/checkout")
+def kernel_checkout(exp_id: str, background: BackgroundTasks, req: KernelCheckoutRequest | None = None):
+    """Real sandbox sign-ups: KERNEL browsers log in as sandbox buyers and approve checkouts."""
+    exp = _exp(exp_id)
+    if not all(a.plan_id for a in exp.arms if a.arm_id not in exp.stopped_arms):
+        raise HTTPException(409, "publish the arms to PayPal first (/paypal/publish)")
+    req = req or KernelCheckoutRequest()
+    count = max(1, min(req.count, 5))
+    job_id = f"{exp_id}-{len(_jobs) + 1}"
+    _jobs[job_id] = {"id": job_id, "status": "running", "count": count, "results": []}
+    background.add_task(_run_checkouts, job_id, exp_id, count, req.buyer)
+    return _jobs[job_id]
+
+
+@router.get("/{exp_id}/kernel/checkout/{job_id}")
+def kernel_checkout_status(exp_id: str, job_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(404, "job not found")
+    return _jobs[job_id]
 
 
 # ---------- Stage 4: webhooks ----------
@@ -312,6 +386,7 @@ async def paypal_webhook(request: Request):
     result = await run_in_threadpool(_handle, event)
     if event_id:
         _seen_webhooks.add(event_id)
+        db.put("webhook_seen", event_id, {"id": event_id})
         _webhook_log.append((event_id, event.get("event_type", ""), result))
     log.info("PayPal webhook %s -> %s", event.get("event_type"), result)
     return result

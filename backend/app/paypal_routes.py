@@ -3,7 +3,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app import config
-from app.paypal_client import get_access_token, paypal_request, PayPalError
+from app import paypal_sdk
+from app.paypal_client import get_access_token, PayPalError
 
 router = APIRouter(prefix="/paypal", tags=["paypal"])
 
@@ -16,6 +17,7 @@ def paypal_health():
             "paypal": "connected",
             "env": config.PAYPAL_ENV,
             "product_id_set": bool(config.PAYPAL_PRODUCT_ID),
+            "sdk": paypal_sdk.SDK_NAME,
         }
     except PayPalError as e:
         return {"paypal": "error", "detail": str(e)}
@@ -30,8 +32,7 @@ def cancel_subscription(subscription_id: str, req: CancelRequest | None = None):
     """Cancel a PayPal subscription. PayPal then sends BILLING.SUBSCRIPTION.CANCELLED to our webhook."""
     reason = (req.reason if req else "Cancelled from PlanLab")[:128]
     try:
-        paypal_request("POST", f"/v1/billing/subscriptions/{subscription_id}/cancel",
-                       json={"reason": reason})
+        paypal_sdk.cancel(subscription_id, reason)
     except PayPalError as e:
         raise HTTPException(502, f"PayPal error {e.status}: {e.body[:500]}") from e
     return {"subscription_id": subscription_id, "status": "cancel requested"}
