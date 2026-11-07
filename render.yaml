@@ -1,0 +1,62 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+# Secrets marked sync: false are entered in the Render dashboard, never committed.
+# If Render gives the services different URLs, update the three onrender.com values below.
+services:
+  - type: web
+    name: planlab-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    plan: starter              # disks need a paid plan; on free, drop `disk` and rely on SEED_DEMO
+    disk:                      # keeps the SQLite database across deploys and restarts
+      name: planlab-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PLANLAB_DB
+        value: /var/data/planlab.db
+      - key: SEED_DEMO
+        value: "true"
+      - key: SAVE_AGENT_LIVE
+        value: "true"
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_API_BASE
+        value: https://api-m.sandbox.paypal.com
+      - key: FRONTEND_URL       # public URL of planlab-web
+        value: https://planlab-web.onrender.com
+      - { key: DATABASE_URL, sync: false }        # Supabase Postgres; optional
+      - { key: PAYPAL_CLIENT_ID, sync: false }
+      - { key: PAYPAL_CLIENT_SECRET, sync: false }
+      - { key: PAYPAL_PRODUCT_ID, sync: false }
+      - { key: PAYPAL_WEBHOOK_ID, sync: false }
+      - { key: PAYPAL_SANDBOX_BUYER_1_EMAIL, sync: false }
+      - { key: PAYPAL_SANDBOX_BUYER_1_PASSWORD, sync: false }
+      - { key: GEMINI_API_KEY, sync: false }
+      - { key: KERNEL_API_KEY, sync: false }
+
+  - type: web
+    name: planlab-web
+    runtime: node
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start -- -p $PORT
+    envVars:
+      - key: NEXT_PUBLIC_API_URL  # baked in at build time: must be the API's public URL
+        value: https://planlab-api.onrender.com
+
+  # Nightly Save Agent sweep: reactivates ended pauses and handles new failed payments.
+  - type: cron
+    name: planlab-save-sweep
+    runtime: python
+    rootDir: backend
+    schedule: "0 3 * * *"
+    buildCommand: pip install httpx
+    startCommand: python -c "import os, httpx; print(httpx.post(os.environ['API_URL'] + '/save/sweep', timeout=120).text[:500])"
+    envVars:
+      - key: API_URL
+        value: https://planlab-api.onrender.com
