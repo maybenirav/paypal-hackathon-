@@ -31,6 +31,9 @@ webhook_router = APIRouter(tags=["paypal-webhooks"])
 # subscription id -> (experiment id, arm id). In memory, like the experiment store.
 _subs: dict[str, tuple[str, str]] = {}
 _seen_webhooks: set[str] = set()
+# subscription id -> {"status", "approve_url"}; webhook log waiting to be saved
+_sub_meta: dict[str, dict] = {}
+_webhook_log: list[tuple[str, str, dict]] = []
 
 # Event types a subscriber can only have once (PAYMENT can repeat every cycle)
 ONE_TIME_TYPES = {"VISIT", "SIGNUP", "CANCELLED"}
@@ -184,6 +187,7 @@ def subscribe(exp_id: str, req: SubscribeRequest | None = None):
     _subs[sub_id] = (exp.id, arm.arm_id)
     approve_url = next((link["href"] for link in sub.get("links", [])
                         if link.get("rel") == "approve"), None)
+    _sub_meta[sub_id] = {"status": sub.get("status"), "approve_url": approve_url}
 
     # Reaching checkout counts as a visit for this arm's conversion rate
     _add_once(exp, Event(experiment_id=exp.id, arm_id=arm.arm_id, subscriber_id=sub_id,
@@ -207,6 +211,8 @@ def sync_subscription(exp_id: str, subscription_id: str):
         raise HTTPException(422, "subscription does not belong to this experiment")
     arm_id = found[1]
     status = sub.get("status")
+    _subs.setdefault(subscription_id, found)
+    _sub_meta.setdefault(subscription_id, {})["status"] = status
 
     added = []
     if status in ("ACTIVE", "SUSPENDED", "CANCELLED", "EXPIRED"):
@@ -265,6 +271,9 @@ def _handle(event: dict) -> dict:
     if not found or not sub_id:
         return {"status": "ignored", "reason": "could not link event to an experiment"}
     exp_id, arm_id = found
+    _subs.setdefault(sub_id, found)
+    if etype.startswith("BILLING.SUBSCRIPTION.") and res.get("status"):
+        _sub_meta.setdefault(sub_id, {})["status"] = res.get("status")
     exp = store.get(exp_id)
     if exp is None or arm_id not in {a.arm_id for a in exp.arms}:
         return {"status": "ignored", "reason": "experiment or arm no longer exists"}
@@ -284,6 +293,7 @@ def _handle(event: dict) -> dict:
             "experiment_id": exp_id, "arm_id": arm_id, "type": our_type}
 
 
+@webhook_router.post("/webhooks/billing")
 @webhook_router.post("/webhooks/paypal")
 async def paypal_webhook(request: Request):
     raw = await request.body()
@@ -302,5 +312,6 @@ async def paypal_webhook(request: Request):
     result = await run_in_threadpool(_handle, event)
     if event_id:
         _seen_webhooks.add(event_id)
+        _webhook_log.append((event_id, event.get("event_type", ""), result))
     log.info("PayPal webhook %s -> %s", event.get("event_type"), result)
     return result

@@ -33,6 +33,10 @@ app.include_router(paypal_exp_router)
 app.include_router(webhook_router)
 from app.paypal_transactions import router as paypal_tx_router
 app.include_router(paypal_tx_router)
+from app.db import init_app as init_db
+from app.db_routes import router as db_router
+app.include_router(db_router)
+init_db(app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
