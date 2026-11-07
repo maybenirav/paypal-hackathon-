@@ -37,11 +37,11 @@ from app.db import init_app as init_db
 from app.db_routes import router as db_router
 app.include_router(db_router)
 init_db(app)
-   from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse
 
 
-   @app.get("/", include_in_schema=False)
-   def root():
+@app.get("/", include_in_schema=False)
+def root():
        return RedirectResponse("/docs")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
