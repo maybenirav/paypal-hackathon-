@@ -2,14 +2,10 @@
 from __future__ import annotations
 
 import json
-import os
-
-import httpx
 
 from ..memory import Memory, adapt_fallback, memory as default_memory
 from ..schemas import Arm, GoalRequest
-
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+from . import llm
 
 SYSTEM_PROMPT = """You design pricing experiments for a PayPal-billed subscription business.
 Return ONLY a JSON array of {n} arms. The first arm MUST be the baseline at the current price
@@ -17,7 +13,10 @@ Return ONLY a JSON array of {n} arms. The first arm MUST be the baseline at the 
 "interval": "MONTH"|"YEAR", "trial_days": int 0-90, "setup_fee": number, "is_baseline": bool,
 "reason": one sentence on why this arm tests the merchant's goal}}.
 Prices are per interval, in {currency}. Keep prices realistic (within 0.5x-3x of the current price
-per month-equivalent). Vary one or two levers per arm so results are interpretable."""
+per month-equivalent). Vary one or two levers per arm so results are interpretable.
+PayPal can only change the price of an existing plan in place when the interval, trial and setup fee
+stay the same as the baseline; any other arm can only be rolled out to new sign-ups. Prefer arms that
+keep those levers when the goal is about price, and say in "reason" when an arm needs a new plan."""
 
 
 def fallback_arms(req: GoalRequest) -> list[Arm]:
@@ -37,16 +36,15 @@ def fallback_arms(req: GoalRequest) -> list[Arm]:
     return arms[:req.num_arms]
 
 
-def _gemini(req: GoalRequest, key: str, model: str, mem: Memory) -> list[Arm]:
+def _gemini(req: GoalRequest, mem: Memory) -> list[Arm]:
     prompt = (SYSTEM_PROMPT.format(n=req.num_arms, currency=req.currency)
               + f"\n\nCurrent monthly price: {req.current_price} {req.currency}."
               + f"\nMerchant goal: {req.goal}")
-    r = httpx.post(
-        GEMINI_URL.format(model=model), params={"key": key}, timeout=30,
-        json={"contents": [{"parts": [{"text": prompt}]}],
-              "generationConfig": {"responseMimeType": "application/json", "temperature": 0.4}})
-    r.raise_for_status()
-    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    past = mem.summary()
+    if past:
+        prompt += ("\n\nResults of this merchant's past experiments (avoid re-testing arms that "
+                   "were stopped; build on winners):\n" + past)
+    text = llm.generate(prompt, json_mode=True, temperature=0.4)
     data = json.loads(text)
     if isinstance(data, dict):
         data = data.get("arms", [])
@@ -62,10 +60,9 @@ def _gemini(req: GoalRequest, key: str, model: str, mem: Memory) -> list[Arm]:
 def generate_arms(req: GoalRequest, mem: Memory | None = None) -> tuple[list[Arm], str]:
     """Returns (arms, source) where source is 'gemini' or 'fallback'."""
     mem = mem if mem is not None else default_memory
-    key = os.getenv("GEMINI_API_KEY")
-    if key:
+    if llm.enabled():
         try:
-            return _gemini(req, key, os.getenv("GEMINI_MODEL", "gemini-2.0-flash"), mem), "gemini"
-        except Exception:  # network, bad JSON, bad schema -> degrade gracefully
+            return _gemini(req, mem), "gemini"
+        except Exception:  # network, overload, bad JSON, bad schema -> degrade gracefully
             pass
     return adapt_fallback(fallback_arms(req.model_copy(update={"num_arms": 4})), mem)[:req.num_arms], "fallback"

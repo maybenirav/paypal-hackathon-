@@ -28,6 +28,8 @@ class GoalRequest(BaseModel):
     current_price: float = Field(default=10.0, gt=0)
     currency: str = "USD"
     num_arms: int = Field(default=3, ge=2, le=4)
+    monthly_visitors: int | None = Field(default=None, ge=1,
+                                         description="Merchant's checkout-page traffic per month")
 
 
 class ArmsResponse(BaseModel):
@@ -40,6 +42,8 @@ class ArmValidation(BaseModel):
     arm_id: str
     valid: bool
     errors: list[str] = []
+    warnings: list[str] = []
+    rollout: Literal["baseline", "in_place", "new_signups_only"] | None = None
     paypal_payload: dict | None = None
 
 
@@ -49,6 +53,7 @@ class ArmInput(BaseModel):
     visitors: int = Field(ge=0)
     signups: int = Field(ge=0)
     churned: int = Field(ge=0)
+    paid: int | None = Field(default=None, ge=0, description="Sign-ups that paid at least once")
     survival: list[float] | None = None
 
 

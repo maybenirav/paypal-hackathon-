@@ -3,39 +3,25 @@ import math
 import pytest
 
 from app.engine.decision import Action, ArmStats, decide
-from app.engine.guardrail import check_guardrail
+from app.engine.guardrails import check_guardrail
 from app.engine.ltv import ltv_12m, survival_from_churn
-from app.engine.stats import two_proportion_z
+from app.engine.readiness import readiness, visitors_per_arm
 
 
-def test_z_significant():
-    # pooled=0.115, se=sqrt(0.115*0.885*0.002)=0.014267, z=0.03/se=2.1028
-    r = two_proportion_z(100, 1000, 130, 1000)
-    assert r.pooled == pytest.approx(0.115)
-    assert r.z == pytest.approx(2.1028, abs=1e-3)
-    assert r.significant
+def test_sample_size_hand_calc():
+    # p0=.10, p1=.125: 2.8016^2 * (.09 + .109375) / .025^2 = 2503.8 -> 2504
+    assert visitors_per_arm(0.10, 0.25) == 2504
 
 
-def test_z_not_significant():
-    # pooled=0.105, se=0.013710, z=0.01/se=0.7294
-    r = two_proportion_z(100, 1000, 110, 1000)
-    assert r.z == pytest.approx(0.7294, abs=1e-3)
-    assert not r.significant
+def test_readiness_flags_small_merchant():
+    r = readiness(3, base_rate=0.10, monthly_visitors=300)
+    assert r.feasible is False and r.days_needed > 60
+    assert "Save Agent" in r.message
 
 
-def test_z_negative_direction():
-    assert two_proportion_z(130, 1000, 100, 1000).z == pytest.approx(-2.1028, abs=1e-3)
-
-
-def test_z_zero_variance():
-    assert two_proportion_z(0, 50, 0, 50).z == 0
-
-
-def test_z_invalid():
-    with pytest.raises(ValueError):
-        two_proportion_z(5, 0, 1, 10)
-    with pytest.raises(ValueError):
-        two_proportion_z(11, 10, 1, 10)
+def test_readiness_progress():
+    r = readiness(2, base_rate=0.10, have_per_arm=2503)
+    assert r.progress == 1 and r.feasible is None
 
 
 def test_ltv_hand_calc():
@@ -101,3 +87,26 @@ def test_decide_keeps_testing():
     base = ArmStats("base", 10, 1000, 100, 10)
     close = ArmStats("close", 11, 1000, 105, 11)
     assert decide(base, [close]).action == Action.KEEP_TESTING
+
+
+def test_cheap_arm_does_not_win_on_conversion_alone():
+    # Half price converts 30% better, but earns less per visitor: 0.13 * 5 < 0.10 * 10.
+    base = ArmStats("base", 10, 2000, 200, 10)
+    cheap = ArmStats("cheap", 5, 2000, 260, 13)
+    d = decide(base, [cheap])
+    assert d.action == Action.KEEP_TESTING
+    assert d.arms[1].prob_beats_baseline < 0.05
+
+
+def test_unpaid_trials_do_not_count():
+    # Same sign-ups as a winning arm, but most trials never paid.
+    base = ArmStats("base", 10, 1000, 100, 10)
+    trial = ArmStats("trial", 12, 1000, 135, 10, paid=60)
+    assert decide(base, [trial]).action == Action.KEEP_TESTING
+
+
+def test_winner_needs_minimum_paying_subscribers():
+    base = ArmStats("base", 10, 100, 5, 0)
+    arm = ArmStats("arm", 10, 100, 20, 0)
+    assert decide(base, [arm]).action == Action.KEEP_TESTING      # 20 paid < 30
+    assert decide(base, [arm], min_paid=10).action == Action.WINNER

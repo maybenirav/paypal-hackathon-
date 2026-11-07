@@ -29,3 +29,4 @@ class Event(BaseModel):
     ts: datetime
     amount: float = Field(default=0, ge=0)
     source: Literal["real", "simulated"] = "real"
+    reason: str | None = None    # free-text cancel reason on CANCEL_INTENT events

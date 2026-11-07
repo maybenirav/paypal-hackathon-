@@ -7,11 +7,17 @@ from __future__ import annotations
 
 import re
 
+# Longer phrases first so "paid conversion" wins over "conversion".
 METRICS = {
+    "mrr per visitor": "mrr_per_visitor", "per visitor": "mrr_per_visitor",
+    "paid conversion": "paid_conversion", "trial": "trial_to_paid", "renewal": "first_renewal",
     "churn": "churn", "conversion": "conversion", "mrr": "mrr", "revenue": "revenue",
     "signups": "signups", "sign-ups": "signups", "visitors": "visitors",
-    "ltv": "ltv", "retention": "retention",
+    "ltv": "projected_ltv", "lifetime": "projected_ltv", "probability": "prob_beats_baseline",
+    "likely": "prob_beats_baseline", "refund": "refund_rate", "dispute": "dispute_rate",
 }
+PERCENT = {"churn", "conversion", "paid_conversion", "trial_to_paid", "first_renewal",
+           "prob_beats_baseline", "refund_rate", "dispute_rate"}
 
 
 def ask(question: str, rows: list[dict]) -> dict:
@@ -35,12 +41,13 @@ def ask(question: str, rows: list[dict]) -> dict:
             threshold = base[metric]
         elif num:
             threshold = float(num.group(1))
-            if metric in ("churn", "conversion") and "%" in q:
+            if metric in PERCENT and "%" in q:
                 threshold /= 100
         else:
             threshold = None
         if threshold is not None:
-            keep = [r for r in rows if (r[metric] > threshold if op == ">" else r[metric] < threshold)
+            keep = [r for r in rows if r.get(metric) is not None
+                    and (r[metric] > threshold if op == ">" else r[metric] < threshold)
                     and not r.get("is_baseline")]
             out.update(filter={"metric": metric, "op": op, "value": threshold},
                        rows=keep, chart={"type": "bar", "metric": metric},
@@ -49,7 +56,11 @@ def ask(question: str, rows: list[dict]) -> dict:
             return out
     if re.search(r"\b(best|top|highest|most)", q) or re.search(r"\b(worst|lowest|least)", q):
         desc = not re.search(r"\b(worst|lowest|least)", q)
-        ranked = sorted(rows, key=lambda r: r[metric], reverse=desc)
+        ranked = sorted((r for r in rows if r.get(metric) is not None),
+                        key=lambda r: r[metric], reverse=desc)
+        if not ranked:
+            out.update(answer=f"No arm has {metric} yet.")
+            return out
         out.update(sort={"metric": metric, "desc": desc}, rows=ranked,
                    chart={"type": "bar", "metric": metric},
                    answer=f"{ranked[0]['arm_id']} has the {'highest' if desc else 'lowest'} {metric}.")

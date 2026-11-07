@@ -325,10 +325,10 @@ def dashboards_delete(dashboard_id: int):
 
 def _capture(exp: Experiment, day: int) -> int:
     from app.main import _rows  # imported here to avoid a circular import
-    _, rows = _rows(exp, day)
+    _, rows, _ = _rows(exp, day)
     values = [(exp.id, r["arm_id"], day, int(r.get("visitors") or 0), int(r.get("signups") or 0),
                int(r.get("churned") or 0), _num(r.get("mrr")) or 0, _num(r.get("conversion")),
-               _num(r.get("churn")), _num(r.get("ltv")), _num(r.get("prob_best")))
+               _num(r.get("churn")), _num(r.get("projected_ltv")), _num(r.get("prob_best")))
               for r in rows]
 
     def work(c):
