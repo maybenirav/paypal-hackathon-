@@ -146,7 +146,8 @@ def test_metrics_include_bayes_and_allocation_shifts_to_winner():
     eid = make()
     client.post(f"/experiments/{eid}/demo", json={"scenario": "winner"})
     rows = {r["arm_id"]: r for r in client.get(f"/experiments/{eid}/metrics").json()["rows"]}
-    assert rows["annual_discount"]["allocation"] > 0.8
+    assert rows["annual_discount"]["allocation"] > 0.6     # the baseline keeps its protected 30%
+    assert rows["baseline"]["allocation"] >= 0.3
     lo, hi = rows["annual_discount"]["conv_ci"]
     assert lo < rows["annual_discount"]["conversion"] < hi
     w = client.get(f"/experiments/{eid}/allocation").json()["weights"]
@@ -156,6 +157,7 @@ def test_metrics_include_bayes_and_allocation_shifts_to_winner():
 
 def test_guardrail_scenario_trips_absolute_guardrail_and_zeroes_allocation():
     eid = make()
+    client.put(f"/experiments/{eid}/guardrails", json={"auto_stop": False})
     client.post(f"/experiments/{eid}/demo", json={"scenario": "guardrail"})
     g = client.get(f"/experiments/{eid}/guardrails").json()["arms"]
     assert [a["arm_id"] for a in g if not a["ok"]] == ["monthly_trial"]

@@ -14,6 +14,8 @@ from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
 
+from .events import utcnow
+
 OfferKind = Literal["pause", "downgrade", "discount", "let_go"]
 Trigger = Literal["PAYMENT_FAILED", "CANCEL_INTENT"]
 
@@ -30,6 +32,7 @@ class SaveRules(BaseModel):
 
 
 class SubscriberContext(BaseModel):
+    experiment_id: str | None = None   # subscriber ids only need to be unique within an experiment
     subscriber_id: str
     subscription_id: str
     plan_id: str = "PLAN_ID"
@@ -63,9 +66,10 @@ def _discount_request(ctx: SubscriberContext, rules: SaveRules) -> dict:
 
 def _build(kind: OfferKind, ctx: SubscriberContext, rules: SaveRules) -> Offer:
     if kind == "pause":
+        payments = f"{ctx.payments_made} successful payment{'' if ctx.payments_made == 1 else 's'}"
         return Offer(kind=kind, rationale=(
             f"Pause for {rules.pause_days} days: {ctx.tenure_days}-day customer with "
-            f"{ctx.payments_made} successful payments is worth keeping through a temporary gap."),
+            f"{payments} is worth keeping through a temporary gap."),
             paypal_request={"method": "POST",
                             "path": f"/v1/billing/subscriptions/{ctx.subscription_id}/suspend",
                             "body": {"reason": "Merchant-offered pause"},
@@ -77,13 +81,18 @@ def _build(kind: OfferKind, ctx: SubscriberContext, rules: SaveRules) -> Offer:
                                      "path": f"/v1/billing/subscriptions/{ctx.subscription_id}/revise",
                                      "body": {"plan_id": rules.downgrade_plan_id}})
     if kind == "discount":
-        return Offer(kind=kind, rationale=(
-            f"{rules.max_discount_pct}% off the next {rules.discount_cycles} cycles: the subscriber "
-            f"signalled price sensitivity."), paypal_request=_discount_request(ctx, rules))
+        why = ("the subscriber signalled price sensitivity" if ctx.reason_hint == "price"
+               else "a smaller bill may keep a subscriber who is about to leave")
+        return Offer(kind=kind, rationale=f"{rules.max_discount_pct}% off the next {rules.discount_cycles} "
+                                          f"cycles: {why}.", paypal_request=_discount_request(ctx, rules))
+    if ctx.trigger == "PAYMENT_FAILED":
+        # Giving up on an offer must never cancel someone: PayPal keeps retrying the payment by itself
+        request = {"method": "NONE", "path": "", "note": "No PayPal call. PayPal keeps retrying the payment."}
+    else:
+        request = {"method": "POST", "path": f"/v1/billing/subscriptions/{ctx.subscription_id}/cancel",
+                   "body": {"reason": "Subscriber chose to leave"}}
     return Offer(kind="let_go", rationale="No offer within the merchant's rules is worth making.",
-                 paypal_request={"method": "POST",
-                                 "path": f"/v1/billing/subscriptions/{ctx.subscription_id}/cancel",
-                                 "body": {"reason": "Subscriber chose to leave"}})
+                 paypal_request=request)
 
 
 def choose_offer(ctx: SubscriberContext, rules: SaveRules) -> Offer:
@@ -137,26 +146,37 @@ class SaveLog:
         self.actions: list[SaveAction] = []
         self.executor: Executor = dry_run_executor
 
-    def handle(self, ctx: SubscriberContext, now: datetime | None = None) -> SaveAction:
-        ctx = ctx.model_copy(update={"previous_saves": max(ctx.previous_saves, self.saves_for(ctx.subscriber_id))})
-        offer = choose_offer(ctx, self.rules)
+    def _execute(self, request: dict) -> tuple[dict, str]:
+        if request.get("method") == "NONE":
+            return {"status": "no_call"}, "no_call"
         try:
-            result = self.executor(offer.paypal_request)
-            status = result.get("status", "executed")
+            result = self.executor(request)
+            return result, result.get("status", "executed")
         except Exception as exc:  # never lose the audit row
-            result, status = {"error": str(exc)}, "failed"
-        action = SaveAction(uuid.uuid4().hex[:8], now or datetime.utcnow(), ctx, offer, status, result)
+            return {"error": str(exc)}, "failed"
+
+    def handle(self, ctx: SubscriberContext, now: datetime | None = None) -> SaveAction:
+        previous = self.saves_for(ctx.experiment_id, ctx.subscriber_id)
+        ctx = ctx.model_copy(update={"previous_saves": max(ctx.previous_saves, previous)})
+        offer = choose_offer(ctx, self.rules)
+        result, status = self._execute(offer.paypal_request)
+        action = SaveAction(uuid.uuid4().hex[:8], now or utcnow(), ctx, offer, status, result)
         with self._lock:
             self.actions.append(action)
         return action
 
-    def saves_for(self, subscriber_id: str) -> int:
-        return sum(1 for a in self.actions if a.context.subscriber_id == subscriber_id
+    def saves_for(self, experiment_id: str | None, subscriber_id: str) -> int:
+        return sum(1 for a in self.actions if a.context.experiment_id == experiment_id
+                   and a.context.subscriber_id == subscriber_id
                    and a.offer.kind != "let_go" and a.status != "overridden")
 
-    def handled(self, subscriber_id: str, trigger: str) -> bool:
-        return any(a.context.subscriber_id == subscriber_id and a.context.trigger == trigger
-                   for a in self.actions)
+    def handled(self, experiment_id: str | None, subscriber_id: str, trigger: str) -> bool:
+        return any(a.context.experiment_id == experiment_id and a.context.subscriber_id == subscriber_id
+                   and a.context.trigger == trigger for a in self.actions)
+
+    def forget(self, experiment_id: str) -> None:
+        with self._lock:
+            self.actions = [a for a in self.actions if a.context.experiment_id != experiment_id]
 
     def override(self, action_id: str, kind: OfferKind, note: str = "") -> SaveAction:
         orig = next((a for a in self.actions if a.id == action_id), None)
@@ -168,18 +188,19 @@ class SaveLog:
         if kind == "downgrade" and not self.rules.downgrade_plan_id:
             raise ValueError("no downgrade_plan_id configured in rules")
         orig.status, orig.override_note = "overridden", note
-        new = SaveAction(uuid.uuid4().hex[:8], datetime.utcnow(), orig.context, offer,
-                         "dry_run", self.executor(offer.paypal_request), overridden_by=action_id,
-                         override_note=note)
+        result, status = self._execute(offer.paypal_request)
+        new = SaveAction(uuid.uuid4().hex[:8], utcnow(), orig.context, offer, status, result,
+                         overridden_by=action_id, override_note=note)
         with self._lock:
             self.actions.append(new)
         return new
 
-    def summary(self) -> dict:
-        saved = [a for a in self.actions if a.offer.kind != "let_go" and a.status != "overridden"]
-        return {"total": len(self.actions), "saves": len(saved),
-                "let_go": sum(a.offer.kind == "let_go" for a in self.actions),
-                "overridden": sum(a.status == "overridden" for a in self.actions)}
+    def summary(self, actions: list[SaveAction] | None = None) -> dict:
+        actions = self.actions if actions is None else actions
+        saved = [a for a in actions if a.offer.kind != "let_go" and a.status != "overridden"]
+        return {"total": len(actions), "saves": len(saved),
+                "let_go": sum(a.offer.kind == "let_go" for a in actions),
+                "overridden": sum(a.status == "overridden" for a in actions)}
 
 
 save_log = SaveLog()

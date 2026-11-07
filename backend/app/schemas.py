@@ -24,9 +24,9 @@ class Arm(BaseModel):
 
 
 class GoalRequest(BaseModel):
-    goal: str = Field(min_length=3)
-    current_price: float = Field(default=10.0, gt=0)
-    currency: str = "USD"
+    goal: str = Field(min_length=3, max_length=500)
+    current_price: float = Field(default=10.0, gt=0, le=1_000_000)
+    currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
     num_arms: int = Field(default=3, ge=2, le=4)
 
 

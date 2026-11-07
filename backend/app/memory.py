@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from .events import utcnow
 from .schemas import Arm
 
 
@@ -14,7 +15,10 @@ class MemoryRecord:
     winner: str | None
     stopped: list[str]
     arms: list[dict]                 # arm_id, price, interval, trial_days, conversion, churn, ltv
-    ts: datetime = field(default_factory=datetime.utcnow)
+    ts: datetime = field(default_factory=utcnow)
+    simulated: bool = False
+    winner_name: str | None = None
+    stopped_names: list[str] = field(default_factory=list)
 
 
 class Memory:
@@ -24,18 +28,31 @@ class Memory:
     def upsert(self, rec: MemoryRecord) -> None:
         self.records = [r for r in self.records if r.experiment_id != rec.experiment_id] + [rec]
 
+    def remove(self, experiment_id: str) -> None:
+        self.records = [r for r in self.records if r.experiment_id != experiment_id]
+
+    def _verdicts(self) -> dict[str, bool]:
+        """Each arm's most recent result, oldest first so later tests overrule earlier ones."""
+        verdicts: dict[str, bool] = {}
+        for r in self.records:
+            verdicts.update({arm: False for arm in r.stopped})
+            if r.winner:
+                verdicts[r.winner] = True
+        return verdicts
+
     def winners(self) -> set[str]:
-        return {r.winner for r in self.records if r.winner}
+        return {arm for arm, won in self._verdicts().items() if won}
 
     def losers(self) -> set[str]:
-        return {a for r in self.records for a in r.stopped}
+        return {arm for arm, won in self._verdicts().items() if not won}
 
     def summary(self, limit: int = 5) -> str:
         if not self.records:
             return ""
         lines = []
         for r in self.records[-limit:]:
-            lines.append(f"- Goal '{r.goal}': winner={r.winner or 'none'}, stopped={r.stopped or 'none'}")
+            kind = " (simulated data)" if r.simulated else ""
+            lines.append(f"- Goal '{r.goal}'{kind}: winner={r.winner or 'none'}, stopped={r.stopped or 'none'}")
             for a in r.arms:
                 lines.append(f"    {a['arm_id']}: {a['price']}/{a['interval']}, trial {a['trial_days']}d, "
                              f"conv {a['conversion']:.1%}, churn {a['churn']:.1%}, LTV {a['ltv']:.2f}")

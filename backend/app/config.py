@@ -16,7 +16,19 @@ PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "")
 PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET", "")
 PAYPAL_PRODUCT_ID = os.getenv("PAYPAL_PRODUCT_ID", "")
 
-FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:5173"
+# Where experiments are saved. Set PLANLAB_DB to an empty value to keep everything in memory only.
+PLANLAB_DB = os.getenv("PLANLAB_DB", str(BACKEND_DIR / "planlab.db"))
+
+FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:3000"
+
+# Alerts when an option is stopped automatically: Slack, email, both or neither.
+ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
+ALERT_EMAIL_TO = os.getenv("ALERT_EMAIL_TO", "")
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM") or SMTP_USERNAME or "planlab@localhost"
 
 # Where PayPal sends the buyer after approving / cancelling a subscription
 PAYPAL_RETURN_URL = os.getenv("PAYPAL_RETURN_URL") or f"{FRONTEND_URL}/subscribe/success"

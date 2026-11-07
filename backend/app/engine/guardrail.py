@@ -1,4 +1,4 @@
-"""Guardrail: stop an arm when C_arm(t)/C_base(t) > gamma AND p_churn < 0.05."""
+"""Guardrail: stop an arm when its churn is gamma times the baseline's AND that difference is significant."""
 from __future__ import annotations
 
 import math
@@ -43,3 +43,24 @@ def check_guardrail(c_base: int, n_base: int, c_arm: int, n_arm: int,
     p = churn_p_value(c_base, n_base, c_arm, n_arm)
     return GuardrailResult(churn_base, churn_arm, ratio, p,
                            ratio > gamma and p < P_CHURN_THRESHOLD)
+
+
+def check_churn_rate(c_base: int, months_base: float, c_arm: int, months_arm: float,
+                     gamma: float = DEFAULT_GAMMA, alpha: float = P_CHURN_THRESHOLD) -> GuardrailResult:
+    """The same check on cancellations per subscriber-month.
+
+    Traffic shifts during a test, so options end up with subscribers of different ages. Comparing
+    rates per month of exposure keeps a younger group from looking safer than it is. The p-value
+    is a one-sided Wald test on the log rate ratio, with 0.5 added to keep zero counts finite.
+    """
+    if months_base <= 0 or months_arm <= 0:
+        raise ValueError("exposure must be positive")
+    rate_base = c_base / months_base
+    rate_arm = c_arm / months_arm
+    if rate_base == 0:
+        ratio = math.inf if rate_arm > 0 else 1.0
+    else:
+        ratio = rate_arm / rate_base
+    log_ratio = math.log(((c_arm + 0.5) / months_arm) / ((c_base + 0.5) / months_base))
+    p = normal_sf(log_ratio / math.sqrt(1 / (c_arm + 0.5) + 1 / (c_base + 0.5)))
+    return GuardrailResult(rate_base, rate_arm, ratio, p, ratio > gamma and p < alpha)

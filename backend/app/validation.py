@@ -12,6 +12,7 @@ import os
 import httpx
 from jsonschema import Draft7Validator
 
+from .paypal_plans import build_plan_payload
 from .schemas import Arm, ArmValidation
 
 _MONEY = {
@@ -29,6 +30,7 @@ PLAN_SCHEMA = {
     "properties": {
         "product_id": {"type": "string", "minLength": 1},
         "name": {"type": "string", "minLength": 1, "maxLength": 127},
+        "description": {"type": "string", "minLength": 1, "maxLength": 127},
         "status": {"enum": ["CREATED", "INACTIVE", "ACTIVE"]},
         "billing_cycles": {
             "type": "array", "minItems": 1, "maxItems": 12,
@@ -70,42 +72,9 @@ PLAN_SCHEMA = {
 _validator = Draft7Validator(PLAN_SCHEMA)
 
 
-def _money(v: float, currency: str) -> dict:
-    return {"value": f"{v:.2f}", "currency_code": currency}
-
-
-def to_paypal_plan(arm: Arm, product_id: str = "PRODUCT_ID_PLACEHOLDER") -> dict:
-    """Build the POST /v1/billing/plans body for an arm."""
-    cycles = []
-    seq = 1
-    if arm.trial_days > 0:
-        cycles.append({
-            "frequency": {"interval_unit": "DAY", "interval_count": arm.trial_days},
-            "tenure_type": "TRIAL", "sequence": seq, "total_cycles": 1,
-            "pricing_scheme": {"fixed_price": _money(0, arm.currency)},
-        })
-        seq += 1
-    cycles.append({
-        "frequency": {"interval_unit": arm.interval, "interval_count": 1},
-        "tenure_type": "REGULAR", "sequence": seq, "total_cycles": 0,
-        "pricing_scheme": {"fixed_price": _money(arm.price, arm.currency)},
-    })
-    return {
-        "product_id": product_id,
-        "name": f"{arm.name} ({arm.arm_id})"[:127],
-        "status": "ACTIVE",
-        "billing_cycles": cycles,
-        "payment_preferences": {
-            "auto_bill_outstanding": True,
-            "setup_fee": _money(arm.setup_fee, arm.currency),
-            "setup_fee_failure_action": "CONTINUE",
-            "payment_failure_threshold": 3,
-        },
-    }
-
-
 def validate_arm(arm: Arm, product_id: str = "PRODUCT_ID_PLACEHOLDER") -> ArmValidation:
-    payload = to_paypal_plan(arm, product_id)
+    # The same builder that publishes real plans, so what passes here is what PayPal receives
+    payload = build_plan_payload(arm, product_id, "EXPERIMENT")
     errors = [f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
               for e in _validator.iter_errors(payload)]
     return ArmValidation(arm_id=arm.arm_id, valid=not errors, errors=errors,
@@ -119,6 +88,12 @@ def validate_arms(arms: list[Arm]) -> list[ArmValidation]:
         for r in results:
             r.valid = False
             r.errors.append("duplicate arm_id")
+    for r in results:
+        if r.valid:
+            remote = validate_with_apimatic(r.paypal_payload)
+            if remote:
+                r.valid = False
+                r.errors.extend(remote)
     return results
 
 

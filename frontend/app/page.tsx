@@ -1,182 +1,402 @@
 "use client";
 
-import { useState } from "react";
-import {
-  approveRollout, askAssistant, createExperiment, decideExperiment, getGuardrails, getMetrics, proposeRollout, runDemo,
-  type AskResponse, type DecisionResponse, type Experiment, type GuardrailArm, type Metrics, type Rollout,
-} from "./api";
-import MrrChart from "./MrrChart";
-import SavePanel from "./SavePanel";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import * as api from "./api";
+import { ApiError, API_URL, type Experiment, type MemoryRecord, type Metrics, type Scenario } from "./api";
+import ArmsTab from "./components/ArmsTab";
+import AutoStops from "./components/AutoStops";
+import Composer from "./components/Composer";
+import ExperimentHeader from "./components/ExperimentHeader";
+import GuardrailsTab from "./components/GuardrailsTab";
+import PayPalTab from "./components/PayPalTab";
+import Rail from "./components/Rail";
+import ResultsTab from "./components/ResultsTab";
+import Verdict from "./components/Verdict";
+import { armText } from "./format";
+import { Icon } from "./icons";
 
-const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+const SaveTab = dynamic(() => import("./components/SaveTab"), {
+  ssr: false,
+  loading: () => <p className="grid-loading" role="status">Loading…</p>,
+});
 
-export default function Home() {
-  const [goal, setGoal] = useState("Raise annual-plan uptake without hurting 60-day retention.");
-  const [price, setPrice] = useState(10);
-  const [numArms, setNumArms] = useState(3);
+type Tab = "results" | "arms" | "guardrails" | "save" | "paypal";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "results", label: "Results" },
+  { id: "arms", label: "Price options" },
+  { id: "guardrails", label: "Guardrails" },
+  { id: "save", label: "Save Agent" },
+  { id: "paypal", label: "PayPal" },
+];
+const FRAME_MS = 380;
+const STOP_PAUSE_MS = 1600;   // long enough to read that an option has just been stopped
+const WEEK = 7;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+export default function Workspace() {
+  const [ready, setReady] = useState(false);
+  const [apiDown, setApiDown] = useState(false);
+  const [gemini, setGemini] = useState<boolean | null>(null);
+  const [paypal, setPaypal] = useState<"connected" | "off" | "unknown">("unknown");
+  const [list, setList] = useState<api.ExperimentSummary[]>([]);
+  const [memory, setMemory] = useState<MemoryRecord[]>([]);
+
   const [exp, setExp] = useState<Experiment | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [decision, setDecision] = useState<DecisionResponse | null>(null);
-  const [question, setQuestion] = useState("show arms with churn above baseline");
-  const [answer, setAnswer] = useState<AskResponse | null>(null);
-  const [guards, setGuards] = useState<GuardrailArm[]>([]);
-  const [rollout, setRollout] = useState<Rollout | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [metricsDay, setMetricsDay] = useState(0);
+  const [day, setDay] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [refetching, setRefetching] = useState(false);
+  const [tab, setTab] = useState<Tab>("arms");
 
-  async function run<T>(fn: () => Promise<T>) {
-    setBusy(true); setError("");
-    try { return await fn(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
-  }
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
 
-  async function onGenerate() {
-    const res = await run(() => createExperiment(goal, price, numArms));
-    if (res) { setExp(res); setMetrics(null); setDecision(null); setAnswer(null); }
-  }
+  const frames = useRef(new Map<string, Metrics>());
+  const frameRequest = useRef(0);
+  const openRequest = useRef(0);
+  const verdictRef = useRef<HTMLDivElement>(null);
 
-  async function onDemo(scenario: "winner" | "guardrail") {
+  const fail = useCallback((error: unknown) => {
+    if (error instanceof ApiError && error.status === 0) {
+      setApiDown(true);
+      return;
+    }
+    setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+  }, []);
+
+  const refreshSidebar = useCallback(async () => {
+    const [experiments, mem] = await Promise.all([api.listExperiments(), api.getMemory()]);
+    setList(experiments);
+    setMemory(mem.records);
+  }, []);
+
+  const checkPayPal = useCallback(async () => {
+    try {
+      const status = await api.paypalHealth();
+      setPaypal(status.paypal === "connected" ? "connected" : "off");
+      return status;
+    } catch {
+      setPaypal("unknown");
+      return null;
+    }
+  }, []);
+
+  /** One metrics snapshot per timeline day. Frames are cached because each costs a Monte Carlo run. */
+  const frame = useCallback(async (id: string, target: number, windowDays: number) => {
+    const key = `${id}:${target}`;
+    const cached = frames.current.get(key);
+    if (cached) return cached;
+    const fresh = await api.getMetrics(id, target >= windowDays ? undefined : target);
+    frames.current.set(key, fresh);
+    return fresh;
+  }, []);
+
+  const open = useCallback(async (id: string, nextTab?: Tab) => {
+    frames.current.clear();
+    setPlaying(false);
+    const request = ++openRequest.current;
+    const [detail, snapshot] = await Promise.all([api.getExperiment(id), api.getMetrics(id)]);
+    if (request !== openRequest.current) return;   // the merchant has already clicked something else
+    frames.current.set(`${id}:${snapshot.window_days}`, snapshot);
+    setExp(detail);
+    setMetrics(snapshot);
+    setDay(snapshot.window_days);
+    setMetricsDay(snapshot.window_days);
+    setTab(nextTab ?? (detail.events.real + detail.events.simulated > 0 ? "results" : "arms"));
+    setNotice(null);
+    window.history.replaceState(null, "", `/?exp=${id}`);
+  }, []);
+
+  const startNew = useCallback(() => {
+    openRequest.current += 1;
+    setPlaying(false);
+    setExp(null);
+    setMetrics(null);
+    setNotice(null);
+    window.history.replaceState(null, "", "/");
+  }, []);
+
+  const boot = useCallback(async () => {
+    try {
+      const status = await api.health();
+      setGemini(status.gemini);
+      setApiDown(false);
+      await refreshSidebar();
+      void checkPayPal();
+      const id = new URLSearchParams(window.location.search).get("exp");
+      if (id) {
+        try {
+          await open(id);
+        } catch (error) {
+          if (!(error instanceof ApiError) || error.status !== 404) throw error;
+          startNew();
+          setNotice({ kind: "error", text: "That experiment doesn't exist any more." });
+        }
+      }
+    } catch (error) {
+      fail(error);
+    } finally {
+      setReady(true);
+    }
+  }, [checkPayPal, fail, open, refreshSidebar, startNew]);
+
+  useEffect(() => { void boot(); }, [boot]);
+
+  // While the API is unreachable, keep checking so the page recovers by itself.
+  useEffect(() => {
+    if (!apiDown) return;
+    const timer = setInterval(() => { void boot(); }, 4000);
+    return () => clearInterval(timer);
+  }, [apiDown, boot]);
+
+  // Dragging the timeline: wait for the pointer to settle, and ignore responses that arrive late.
+  useEffect(() => {
+    if (!exp || !metrics || playing || day === metricsDay) return;
+    const timer = setTimeout(async () => {
+      const request = ++frameRequest.current;
+      setRefetching(true);
+      try {
+        const snapshot = await frame(exp.id, day, metrics.window_days);
+        if (request === frameRequest.current) {
+          setMetrics(snapshot);
+          setMetricsDay(day);
+        }
+      } catch (error) {
+        fail(error);
+      } finally {
+        if (request === frameRequest.current) setRefetching(false);
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [day, exp, fail, frame, metrics, metricsDay, playing]);
+
+  // Replay: step through the timeline a week at a time until the end, pausing wherever an option is stopped.
+  useEffect(() => {
+    if (!playing || !exp || !metrics) return;
+    const id = exp.id;
+    const windowDays = metrics.window_days;
+    const stopDays = exp.stops.flatMap((stop) => (stop.day === null ? [] : [stop.day]));
+    let cancelled = false;
+    (async () => {
+      let current = metricsDay >= windowDays ? 0 : metricsDay;
+      try {
+        while (!cancelled) {
+          const snapshot = await frame(id, current, windowDays);
+          if (cancelled) return;
+          setMetrics(snapshot);
+          setMetricsDay(current);
+          setDay(current);
+          if (current >= windowDays) break;
+          await sleep(stopDays.includes(current) ? STOP_PAUSE_MS : FRAME_MS);
+          const later = stopDays.filter((stopDay) => stopDay > current);
+          current = Math.min(windowDays, (Math.floor(current / WEEK) + 1) * WEEK, ...later);
+        }
+      } catch (error) {
+        fail(error);
+      }
+      if (!cancelled) setPlaying(false);
+    })();
+    return () => { cancelled = true; };
+    // Only the play button starts or stops this loop; it reads the rest once at the start.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing]);
+
+  const act = useCallback(async (label: string, action: () => Promise<void>) => {
+    setBusy(label);
+    setNotice(null);
+    try {
+      await action();
+    } catch (error) {
+      fail(error);
+    } finally {
+      setBusy(null);
+    }
+  }, [fail]);
+
+  /** Reloads the open experiment after something changed it, keeping the timeline where it is. */
+  const reload = useCallback(async (id: string) => {
+    frames.current.clear();
+    const [detail] = await Promise.all([api.getExperiment(id), refreshSidebar()]);
+    const snapshot = await api.getMetrics(id);
+    frames.current.set(`${id}:${snapshot.window_days}`, snapshot);
+    setExp(detail);
+    // Real data has no timeline to replay, and its window grows as new events arrive
+    const target = detail.events.real > 0 ? snapshot.window_days : Math.min(day, snapshot.window_days);
+    const shown = target >= snapshot.window_days ? snapshot : await frame(id, target, snapshot.window_days);
+    setMetrics(shown);
+    setDay(target);
+    setMetricsDay(target);
+  }, [day, frame, refreshSidebar]);
+
+  // Real sign-ups and payments arrive by webhook at any time, so keep the numbers current.
+  const hasRealEvents = (exp?.events.real ?? 0) > 0;
+  const openId = exp?.id;
+  useEffect(() => {
+    if (!openId || !hasRealEvents || (tab !== "results" && tab !== "guardrails") || busy !== null) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) reload(openId).catch(() => { /* the next tick tries again */ });
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [busy, hasRealEvents, openId, reload, tab]);
+
+  const design = (goal: string, price: number, arms: number) =>
+    act("design", async () => {
+      const created = await api.createExperiment(goal, price, arms);
+      await refreshSidebar();
+      await open(created.id, "arms");
+    });
+
+  const runDemo = (scenario: Scenario) => {
     if (!exp) return;
-    const m = await run(async () => { await runDemo(exp.id, scenario); return getMetrics(exp.id); });
-    if (m) { setMetrics(m); setDecision(null); setAnswer(null); setRollout(null); await refreshGuards(); }
-  }
+    const realEvents = exp.events.real;
+    if (realEvents > 0 && !window.confirm(
+      `This experiment has ${realEvents} real PayPal events. Running a simulation replaces them. Continue?`)) return;
+    const id = exp.id;
+    return act("demo", async () => {
+      setPlaying(false);
+      frames.current.clear();
+      await api.runDemo(id, scenario, realEvents > 0);
+      const animate = !reducedMotion();
+      // Fetch everything first and apply it together, so the old day never flashes on screen.
+      const [detail, snapshot] = await Promise.all([
+        api.getExperiment(id), api.getMetrics(id, animate ? 0 : undefined), refreshSidebar(),
+      ]);
+      const startDay = animate ? 0 : snapshot.window_days;
+      frames.current.set(`${id}:${startDay}`, snapshot);
+      setExp(detail);
+      setMetrics(snapshot);
+      setDay(startDay);
+      setMetricsDay(startDay);
+      setTab("results");
+      setPlaying(animate);
+    });
+  };
 
-  async function refreshGuards() {
+  const analyze = () => {
+    if (!exp || !metrics) return;
+    const id = exp.id;
+    const simulated = exp.events.real === 0;
+    const asOf = simulated && day < metrics.window_days ? day : undefined;
+    return act("analyze", async () => {
+      setPlaying(false);
+      await api.decideExperiment(id, asOf);
+      await reload(id);
+      verdictRef.current?.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+    });
+  };
+
+  const rollout = (step: "propose" | "approve") => {
     if (!exp) return;
-    try { setGuards((await getGuardrails(exp.id)).arms); } catch { /* optional widget */ }
-  }
+    const id = exp.id;
+    return act("rollout", async () => {
+      await (step === "propose" ? api.proposeRollout(id) : api.approveRollout(id));
+      await reload(id);    // an approved rollout changes the traffic split, not just its own status
+    });
+  };
 
-  async function onRollout() {
+  const resume = (armId: string) => {
     if (!exp) return;
-    const r = await run(() => (rollout?.status === "proposed" ? approveRollout(exp.id) : proposeRollout(exp.id)));
-    if (r) setRollout(r);
-  }
+    const id = exp.id;
+    return act("resume", async () => {
+      setPlaying(false);
+      await api.resumeArm(id, armId);
+      await reload(id);
+    });
+  };
 
-  async function onDecide() {
+  const removeExperiment = () => {
     if (!exp) return;
-    const d = await run(() => decideExperiment(exp.id));
-    if (!d) return;
-    setDecision(d);
-    const m = await run(() => getMetrics(exp.id));
-    if (m) setMetrics(m);
-    await refreshGuards();
-  }
+    const id = exp.id;
+    if (!window.confirm("Delete this experiment and its results? This can't be undone. PayPal plans it published stay in PayPal.")) return;
+    return act("delete", async () => {
+      await api.deleteExperiment(id);
+      startNew();
+      await refreshSidebar();
+    });
+  };
 
-  async function onAsk() {
-    if (!exp) return;
-    const a = await run(() => askAssistant(exp.id, question));
-    if (a) setAnswer(a);
+  function onTabKey(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    const move = event.key === "ArrowRight" ? 1 : -1;
+    const next = TABS[(TABS.findIndex((t) => t.id === tab) + move + TABS.length) % TABS.length];
+    setTab(next.id);
+    event.currentTarget.querySelector<HTMLButtonElement>(`[data-tab="${next.id}"]`)?.focus();
   }
-
-  const rows = answer?.rows ?? metrics?.rows ?? [];
 
   return (
-    <main>
-      <h1>PlanLab</h1>
-      <p className="sub">Describe a goal. The agent designs pricing arms, validates them for PayPal, and decides.</p>
+    <div className="app">
+      <Rail experiments={list} activeId={exp?.id ?? null} onSelect={(id) => act("open", () => open(id))}
+        onNew={startNew} apiOk={!apiDown} paypal={paypal} gemini={gemini} />
 
-      <section className="card">
-        <h2>1. Goal</h2>
-        <textarea value={goal} onChange={(e) => setGoal(e.target.value)} />
-        <div className="row">
-          <label>Current monthly price ($)
-            <input type="number" min={1} value={price} onChange={(e) => setPrice(+e.target.value)} />
-          </label>
-          <label>Arms
-            <input type="number" min={2} max={4} value={numArms} onChange={(e) => setNumArms(+e.target.value)} />
-          </label>
-          <button disabled={busy || goal.length < 3} onClick={onGenerate}>Design experiment</button>
-        </div>
-        {error && <p className="err">{error}</p>}
-      </section>
-
-      {exp && (
-        <section className="card">
-          <h2>2. Proposed arms <span className="sub">({exp.source === "gemini" ? "Gemini" : "offline fallback"})</span></h2>
-          <table>
-            <thead><tr><th>Arm</th><th>Price</th><th>Trial</th><th>Why</th><th>PayPal check</th></tr></thead>
-            <tbody>
-              {exp.arms.map((a) => {
-                const v = exp.validation.find((x) => x.arm_id === a.arm_id);
-                return (
-                  <tr key={a.arm_id}>
-                    <td>{a.name}{a.is_baseline && " (baseline)"}</td>
-                    <td>{a.currency} {a.price}/{a.interval === "YEAR" ? "yr" : "mo"}</td>
-                    <td>{a.trial_days ? `${a.trial_days}d` : "-"}</td>
-                    <td>{a.reason}</td>
-                    <td><span className={`badge ${v?.valid ? "ok" : "bad"}`}>{v?.valid ? "valid" : "invalid"}</span>
-                      {v?.errors.map((e) => <div key={e} className="err">{e}</div>)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <div className="row">
-            <button disabled={busy} onClick={() => onDemo("winner")}>Run demo: winner</button>
-            <button disabled={busy} onClick={() => onDemo("guardrail")}>Run demo: guardrail</button>
+      <main className="main">
+        {notice && (
+          <div className={`notice notice-${notice.kind}`} role="alert">
+            <Icon name={notice.kind === "error" ? "alert" : "check"} />
+            <span>{notice.text}</span>
+            <button className="icon-btn" onClick={() => setNotice(null)} aria-label="Dismiss"><Icon name="close" /></button>
           </div>
-        </section>
-      )}
+        )}
 
-      {metrics && (
-        <section className="card">
-          <h2>3. Live results <span className="sub">(60 simulated days; events use the shared event format)</span></h2>
-          <table>
-            <thead><tr><th>Arm</th><th>Visitors</th><th>Sign-ups</th><th>Conv. (95% CI)</th><th>P(best)</th><th>Traffic</th><th>Churn</th><th>MRR</th><th>LTV</th><th>Z</th><th>Status</th></tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.arm_id}>
-                  <td>{r.name}{r.is_baseline && " (baseline)"}</td><td>{r.visitors}</td><td>{r.signups}</td>
-                  <td>{pct(r.conversion)} <span className="sub">({pct(r.conv_ci[0])}–{pct(r.conv_ci[1])})</span></td><td>{pct(r.prob_best)}</td><td>{pct(r.allocation)}</td><td>{pct(r.churn)}</td><td>${r.mrr.toFixed(0)}</td>
-                  <td>${r.ltv.toFixed(2)}</td><td>{r.z ?? "-"}</td>
-                  <td><span className={`badge ${r.status === "stopped" ? "bad" : r.status === "winner" ? "ok" : ""}`}>{r.status}</span></td>
-                </tr>
+        {apiDown ? (
+          <section className="api-down">
+            <h1>Can&rsquo;t reach the PlanLab API</h1>
+            <p>The workspace is looking for it at <code>{API_URL}</code> and will reconnect by itself once it&rsquo;s up. Start it from the <code>backend</code> folder:</p>
+            <pre>python -m uvicorn app.main:app --reload</pre>
+            <button className="btn" onClick={() => void boot()}><Icon name="refresh" /> Try again</button>
+          </section>
+        ) : !ready ? (
+          <p className="loading" role="status">Loading workspace…</p>
+        ) : !exp || !metrics ? (
+          <Composer busy={busy === "design"} gemini={gemini} memory={memory} onDesign={design} />
+        ) : (
+          <>
+            <ExperimentHeader exp={exp} busy={busy !== null} onDelete={removeExperiment} />
+            {tab === "results" && (
+              <div ref={verdictRef}>
+                <AutoStops exp={exp} stops={metrics.stops} day={metricsDay} busy={busy !== null} onResume={resume} />
+                <Verdict exp={exp} busy={busy !== null} onAnalyze={analyze}
+                  onPropose={() => rollout("propose")} onApprove={() => rollout("approve")} />
+              </div>
+            )}
+            <div className="tabs" role="tablist" aria-label="Experiment sections" onKeyDown={onTabKey}>
+              {TABS.map((t) => (
+                <button key={t.id} id={`tab-${t.id}`} data-tab={t.id} role="tab" aria-selected={tab === t.id}
+                  aria-controls="tab-panel" tabIndex={tab === t.id ? 0 : -1} onClick={() => setTab(t.id)}>
+                  {t.label}
+                </button>
               ))}
-            </tbody>
-          </table>
-          <MrrChart series={metrics.mrr_series} arms={metrics.rows.map((r) => r.arm_id)} />
-          <div className="row">
-            <button disabled={busy} onClick={onDecide}>Run analysis</button>
-            <input style={{ flex: 1, minWidth: 240 }} value={question} onChange={(e) => setQuestion(e.target.value)} />
-            <button disabled={busy} onClick={onAsk}>Ask assistant</button>
-          </div>
-          {answer && <p>{answer.answer}</p>}
-        </section>
-      )}
-
-      {guards.length > 0 && (
-        <section className="card">
-          <h2>Guardrails</h2>
-          <table>
-            <thead><tr><th>Arm</th><th>Retention</th><th>Refund rate</th><th>Dispute rate</th><th>Status</th></tr></thead>
-            <tbody>
-              {guards.map((g) => (
-                <tr key={g.arm_id}>
-                  <td>{g.arm_id}</td><td>{pct(g.retention)}</td><td>{pct(g.refund_rate)}</td><td>{pct(g.dispute_rate)}</td>
-                  <td><span className={`badge ${g.ok ? "ok" : "bad"}`}>{g.ok ? "ok" : "breached"}</span>
-                    {g.breaches.map((b) => <div key={b} className="err">{b}</div>)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {decision && (
-        <section className={`card decision ${decision.action}`}>
-          <h2>{{ stop_arm: "Guardrail fired", winner: "Winner chosen", keep_testing: "Keep testing" }[decision.action]}
-            {decision.arm_id && `: ${decision.arm_id}`}</h2>
-          <p>{decision.explanation}</p>
-          {decision.action === "winner" && (
-            <div className="row">
-              <button disabled={busy || rollout?.status === "approved"} onClick={onRollout}>
-                {rollout?.status === "approved" ? "Rolled out" : rollout ? "Approve rollout" : "Propose rollout"}
-              </button>
-              {rollout && <span className="sub">{rollout.kind}: {rollout.requests.length} PayPal request(s) {rollout.status}</span>}
             </div>
-          )}
-        </section>
-      )}
-      {exp && <SavePanel />}
-    </main>
+            <div id="tab-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="tab-panel">
+              {tab === "results" && (
+                <ResultsTab key={`${exp.id}-${exp.scenario}`} exp={exp} metrics={metrics} metricsDay={metricsDay} day={day}
+                  playing={playing} refetching={refetching} busy={busy}
+                  onScrub={(next) => { setPlaying(false); setDay(next); }}
+                  onTogglePlay={() => setPlaying((p) => !p)} onAnalyze={analyze} onDemo={runDemo}
+                  onError={fail} />
+              )}
+              {tab === "arms" && (
+                <ArmsTab exp={exp} busy={busy !== null} onDemo={runDemo} onOpenPayPal={() => setTab("paypal")} />
+              )}
+              {tab === "guardrails" && (
+                <GuardrailsTab expId={exp.id} guardrails={metrics.guardrails} rows={metrics.rows}
+                  stoppedArms={metrics.stopped_arms} stops={metrics.stops} autoChecks={metrics.auto_checks}
+                  simulated={exp.events.real === 0} rolledOut={exp.rollout?.status === "approved"} busy={busy !== null}
+                  nameOfArm={(id) => exp.arms.find((a) => a.arm_id === id)?.name ?? id}
+                  explain={(text) => armText(exp, text)} onResume={resume}
+                  onSaved={() => reload(exp.id)} onError={fail} />
+              )}
+              {tab === "save" && <SaveTab key={exp.id} expId={exp.id} onError={fail} />}
+              {tab === "paypal" && (
+                <PayPalTab exp={exp} onCheckHealth={checkPayPal} onDataChanged={() => reload(exp.id)} onError={fail} />
+              )}
+            </div>
+          </>
+        )}
+      </main>
+    </div>
   );
 }

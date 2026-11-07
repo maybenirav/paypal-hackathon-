@@ -26,7 +26,6 @@ def _fmt(dt: datetime) -> str:
 
 def _simplify(item: dict) -> dict:
     info = item.get("transaction_info") or {}
-    payer = item.get("payer_info") or {}
     amount = info.get("transaction_amount") or {}
     fee = info.get("fee_amount") or {}
     return {
@@ -38,8 +37,7 @@ def _simplify(item: dict) -> dict:
         "currency": amount.get("currency_code"),
         "fee": float(fee.get("value") or 0),
         "subscription_id": info.get("paypal_reference_id"),
-        "custom": info.get("custom_field"),
-        "payer_email": payer.get("email_address"),
+        "custom": info.get("custom_field"),   # no buyer details: nothing here needs them
     }
 
 
