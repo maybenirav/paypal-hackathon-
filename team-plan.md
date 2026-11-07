@@ -29,7 +29,7 @@ These will hurt us later if we ignore them.
 - [ ] **Webhooks need a public URL.** Deploy the backend to Render first, before building features.
 - [ ] **One backend language: Python (FastAPI).** No split between Node and Python.
 - [ ] **Check access to every sponsor tool** (AG Studio, Bryntum, KERNEL, Render Workflows, APIMatic). Look at the hackathon Resources page and ask in Discord. We only want free access.
-- [ ] **Find a real source for the "80% of merchants never test prices" claim**, or remove it from the pitch.
+- [x] ~~"80% of merchants never test prices"~~: no source found, removed from the pitch. Use real merchant quotes instead.
 - [ ] **Read the Rules page** to see whether one project can win more than one prize.
 
 ---

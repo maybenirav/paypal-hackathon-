@@ -13,18 +13,23 @@ The full v2 brief (upgrades, sponsor map, 20-day plan, demo script, risks) is th
 | Stats in one well-tested module, Bayesian with credible intervals | Done | `backend/app/engine/bayes.py` (Beta-Binomial, 95% CI, P(best), P(beats baseline)) |
 | Thompson-sampling allocation (replaces 50/50) | Done | `bayes.thompson_allocation`, `GET /experiments/{id}/allocation`, `POST /experiments/{id}/assign` |
 | Guardrails the agent cannot cross: retention floor, refund ceiling, dispute ceiling | Done (merchant-adjustable) | `engine/guardrails.py`, `GET/PUT /experiments/{id}/guardrails`; a breach pauses the arm and explains why |
-| Decision checkpoint with winner + credible interval | Done | `POST /experiments/{id}/decide` (Bayesian: P(beats baseline) >= 95% and higher 12-month LTV) |
-| Auto-rollout with one-click approval | Done as proposal + approve; PayPal calls are dry-run | `POST .../rollout/propose`, `.../rollout/approve` |
-| Save Agent: offer selection within merchant rules | Done | `backend/app/save_agent.py` (pause, downgrade, 20% off x3, let go) |
+| Decision checkpoint with winner + credible interval | Done, **changed 7 Nov** | `POST /experiments/{id}/decide`: P(new MRR per visitor beats baseline) >= 95% with >= 30 paying subscribers. 12-month LTV is now a projection only. The z-test (`stats.py`) and the duplicate guardrail module were removed: there is one Bayesian path and one `guardrails.py` |
+| Auto-rollout with one-click approval | Done, fair by default | A cheaper same-shape winner lowers the existing plan's price for everyone. Otherwise new sign-ups get the winner and existing subscribers are grandfathered. Runs through the SDK when `SAVE_AGENT_LIVE=true` |
+| Save Agent: offer selection within merchant rules | Done, **verified in sandbox** | Gemini reads the free-text cancel reason (keyword fallback); rules pick the offer. Every action was run against the sandbox: see `docs/sandbox-verification.md` |
 | Save Agent audit log + merchant override | Done | `GET /save/log`, `POST /save/log/{id}/override`, UI panel |
-| Nightly save sweep | Done (endpoint) | `POST /save/sweep`; Render cron should call it |
+| Nightly save sweep | Done | `POST /save/sweep` also reactivates ended pauses; the `render.yaml` cron calls it |
 | Experiment Memory feeds the Pricing Agent | Done | `backend/app/memory.py`, `GET /memory`; fallback and Gemini prompt both use it |
 | Pricing Agent (goal -> variants) | Done, Gemini optional | `backend/app/agent/pricing_agent.py` |
-| Plan validation before creation | Local JSON Schema only | `backend/app/validation.py` |
-| Cohort Simulator (labelled synthetic merchant) | Done for 2 scenarios | `backend/app/simulate.py` (winner, guardrail) |
+| Plan validation before creation | Done | JSON Schema, merchant price bounds (0.5x-3x), no copies of the baseline, and a PayPal rollout-constraint label per arm. Invalid arms are rejected and shown in the UI |
+| Cohort Simulator (labelled synthetic merchant) | Done for 2 scenarios | `backend/app/simulate.py`: trials pay after the trial and some never convert; cancel intents carry free-text reasons |
+| Persistence | Done | SQLite (`app/db.py`); the demo merchant is seeded on an empty database |
+| Sample-size readiness | Done | `engine/readiness.py`: visitors needed per arm and days at the merchant's traffic; small merchants are pointed at the Save Agent |
+| KERNEL sandbox buyers | Done | `app/kernel_bot.py`, `POST /experiments/{id}/kernel/checkout` |
+| AG Grid workspace + Bryntum timeline | Done | `frontend/app/ArmsGrid.tsx`, `SavePanel.tsx`, `Timeline.tsx`; `GET /experiments/{id}/timeline` |
+| Render deploy | Blueprint ready | `render.yaml` (API + disk, web, nightly cron); not deployed yet |
 | Agent Framework custom agent talking to Studio agents | **Not started**: needs AG Studio access | Person C / AG Studio trial |
 | Real-account backfill (`list_transaction`) | **Not started**: needs PayPal client | Person A |
-| APIMatic SDK / Context Plugin | **Not started**: needs account access | see README note below |
+| APIMatic SDK | Done | All plan and subscription calls go through PayPal's APIMatic-generated `paypal-server-sdk` (`app/paypal_sdk.py`); we found and worked around its `total_cycles: 0` bug |
 
 ## What the Save Agent really does (read before demoing)
 
@@ -40,8 +45,7 @@ The full v2 brief (upgrades, sponsor map, 20-day plan, demo script, risks) is th
 
 ## Honesty notes for the README / video
 
-- Demo data is a labelled synthetic cohort (`source: "simulated"` on every event). Nothing here has been verified against the real PayPal
-  sandbox yet.
+- Demo data is a labelled synthetic cohort (`source: "simulated"` on every event). Real PayPal events (`source: "real"`) are counted separately, and the UI shows both counts. The PayPal flow and every Save Agent action were verified in the sandbox on 7 Nov (`docs/sandbox-verification.md`).
 - Guardrail horizon: "retention" is the share of sign-ups not cancelled so far; it is the 60-day figure only once cohorts are 60 days old.
 - Simulated annual arms pay once; LTV treats churn over the window as a monthly rate, which is an approximation to revisit with real
   survival curves.

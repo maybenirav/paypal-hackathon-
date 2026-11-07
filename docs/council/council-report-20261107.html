@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PlanLab Council Report</title>
+<style>
+:root{--bg:#ffffff;--fg:#1d2330;--muted:#5b6475;--line:#e3e6ec;--soft:#f6f7f9;--accent:#2f5bd3;--red:#c0392b;--amber:#b7791f;--green:#2e7d4f;
+--c1:#c0392b;--c2:#6b46c1;--c3:#2f855a;--c4:#2b6cb0;--c5:#b7791f}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#14171d;--fg:#e7e9ee;--muted:#a1a9b8;--line:#2a2f3a;--soft:#1b1f27;--accent:#7aa2ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:26px;margin:0 0 4px}
+h2{font-size:19px;margin:32px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+h3{font-size:16px;margin:18px 0 6px}
+.muted{color:var(--muted)}
+.q{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:16px 0}
+.verdict{border:2px solid var(--red);border-radius:12px;padding:16px 18px;margin:20px 0}
+.verdict b.big{font-size:18px;display:block;margin-bottom:6px}
+.meter{height:12px;background:var(--soft);border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:8px 0 4px}
+.meter span{display:block;height:100%;width:35%;background:var(--amber)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--bg)}
+.card h3{margin-top:0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tw{overflow-x:auto}
+th,td{border:1px solid var(--line);padding:6px 8px;text-align:center}
+th:first-child,td:first-child{text-align:left}
+th{background:var(--soft)}
+.y{color:var(--green);font-weight:600}.n{color:var(--red);font-weight:600}.p{color:var(--amber);font-weight:600}
+ul{padding-left:20px;margin:6px 0}
+li{margin:3px 0}
+details{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:8px 12px;margin:8px 0;background:var(--bg)}
+details summary{cursor:pointer;font-weight:600}
+details.c1{border-left-color:var(--c1)}details.c2{border-left-color:var(--c2)}details.c3{border-left-color:var(--c3)}details.c4{border-left-color:var(--c4)}details.c5{border-left-color:var(--c5)}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:var(--soft);border:1px solid var(--line);margin-left:6px}
+.first{background:var(--soft);border:2px solid var(--accent);border-radius:12px;padding:14px 16px}
+.keep li::marker{content:"✓  ";color:var(--green)}.cut li::marker{content:"✗  ";color:var(--red)}
+footer{margin-top:40px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+</style>
+</head>
+<body><main>
+<h1>LLM Council: Is PlanLab winnable?</h1>
+<div class="muted">PayPal AI Hackathon · 3 days left · counciled 7 Nov 2026</div>
+
+<div class="q"><b>Question:</b> Is this a winnable, genuinely good idea? With 3 days left, how much progress is done? List every brutal fact and flaw, then explain how to improve it and win.</div>
+
+<div class="verdict">
+<b class="big">Not winnable as it stands. A smaller, honest version can place.</b>
+Lead with the Save Agent. Keep experiments as the second act, judged on a short-horizon metric. Two sponsor prizes are realistic: Render and AG Grid.
+<div class="meter"><span></span></div>
+<div class="muted">About 35% of a demo you could submit. Backend logic is mostly done. Deployment, a real frontend, sponsor integration, video and real evidence are all at zero.</div>
+</div>
+
+<h2>Advisor positions</h2>
+<div class="tw"><table>
+<tr><th>Position</th><th>Contrarian</th><th>First Principles</th><th>Expansionist</th><th>Outsider</th><th>Executor</th></tr>
+<tr><td>Winnable as is?</td><td class="n">No</td><td class="n">No</td><td class="p">Wrong half pitched</td><td class="n">Not yet</td><td class="p">Only if scope stops today</td></tr>
+<tr><td>Lead with Save Agent</td><td class="n">No</td><td class="y">Yes</td><td class="y">Yes</td><td class="y">Yes</td><td class="n">No</td></tr>
+<tr><td>Cut Bryntum / KERNEL / APIMatic</td><td class="y">Yes</td><td class="y">Yes</td><td class="y">Yes</td><td class="p">Implied</td><td class="y">Yes</td></tr>
+<tr><td>Keep AG Grid + Render</td><td class="y">Yes</td><td class="y">Yes</td><td class="y">Yes</td><td class="p">Only if it helps the story</td><td class="y">Yes</td></tr>
+<tr><td>Delete 80% claim</td><td class="y">Yes</td><td class="y">Yes</td><td class="muted">n/a</td><td class="y">Yes</td><td class="y">Yes</td></tr>
+<tr><td>Add new scope</td><td class="n">No</td><td class="n">No</td><td class="y">Pooled priors + MCP</td><td class="n">No</td><td class="n">No</td></tr>
+</table></div>
+<p class="muted">Peer review: all 5 reviewers picked the <b>Contrarian</b> as the strongest answer and the <b>Expansionist</b> as the biggest blind spot.</p>
+
+<h2>Chairman's verdict</h2>
+
+<h3>Where the council agrees</h3>
+<ul>
+<li><b>The demo can't prove its main claim.</b> Seeded data makes any engine pick the winner you planted. Only one sandbox subscription is real.</li>
+<li><b>Too many sponsors.</b> Sponsor prizes are listed with no sponsor code installed. Keep AG Grid and Render, drop the rest.</li>
+<li><b>Code rot.</b> There are two stats engines and two guardrail modules. In-memory storage means the app is empty after every restart.</li>
+<li><b>The "80% of merchants" claim</b> has no source, and it argues against your own product.</li>
+<li><b>Small merchants lack sign-ups.</b> A posterior built on 40 sign-ups only says "we don't know".</li>
+<li><b>The video decides the result.</b> Show one real PayPal chain, label everything simulated, and use no stats jargon.</li>
+</ul>
+
+<h3>Where the council clashes</h3>
+<div class="grid">
+<div class="card"><h3>What to lead with</h3>The Contrarian and Executor lead with the experiment engine. First Principles and the Outsider lead with the Save Agent. <b>Ruling: the Save Agent.</b> It works at n=1, shows results in days and is understood instantly.</div>
+<div class="card"><h3>Add or cut scope</h3>The Expansionist wants pooled "PayPal benchmark" priors plus MCP. <b>Ruling: rejected.</b> A synthetic informative prior repeats the planted-winner flaw, and "4,000 vs 300" is another invented number. Mention it as future work.</div>
+<div class="card"><h3>Executor's hero flow</h3>The schedule is right, but it still sells a 12-month-LTV winner on a simulated clock. <b>Ruling: keep the schedule and change the metric.</b></div>
+</div>
+
+<h3>Blind spots caught in peer review</h3>
+<ul>
+<li><b>Delayed reward.</b> Thompson sampling needs fast feedback, but LTV takes a year. Decide on <b>trial-to-paid or first-renewal rate</b>, use churn as a guardrail, and show LTV only as "projected".</li>
+<li><b>The Save Agent may be partly fake.</b> PayPal has no timed pause, and price overrides are uncertain. Build every offer from real primitives (revise to a cheaper or discounted plan; suspend now and reactivate later) and test each one in sandbox.</li>
+<li><b>Un-rollable arms.</b> PayPal only rolls out a new price when interval and trial match the baseline. Show Gemini rejecting the arms that can't be rolled out. That is your "AI meets real constraints" moment, and it answers "what does Gemini add?"</li>
+<li><b>No real merchant evidence.</b> Get 2–3 merchant conversations. One quote replaces the 80% claim.</li>
+<li><b>Rules unread.</b> Check the exact deadline and timezone, required PayPal tooling, rules on code written before the hackathon, and sponsor criteria.</li>
+<li><b>Pricing fairness.</b> Grandfather existing subscribers and get consent for price increases in the rollout.</li>
+<li><b>No backup recording.</b> Record a backup take, and keep API keys off Render logs and out of the repo. The 5 team roles need names today.</li>
+</ul>
+
+<h2>The recommendation</h2>
+<div class="q"><b>Pitch:</b> "PlanLab is an AI copilot for PayPal subscription merchants. It saves customers who try to cancel, and once you have enough sign-ups, it safely tests which price earns more, all on real PayPal plans."</div>
+<div class="grid">
+<div class="card"><h3>Keep</h3><ul class="keep"><li><code>bayes.py</code>, switched to trial-to-paid</li><li>One guardrail module</li><li>Save Agent, verified actions only</li><li>Audit log</li><li>Dry-run rollout with grandfathering</li><li>Gemini arms with a rollout check</li><li>Webhook receiver</li><li>SQLite, seeded on startup</li><li>AG Grid Community</li><li>Render</li></ul></div>
+<div class="card"><h3>Cut</h3><ul class="cut"><li><code>stats.py</code> and the duplicate guardrail module</li><li>Experiment memory</li><li>12-month LTV as the decision metric</li><li>Bryntum, KERNEL, APIMatic</li><li>AG Studio claim</li><li>"80% of merchants" claim</li><li>Pooled priors and MCP</li></ul></div>
+</div>
+
+<h3>3-day plan</h3>
+<div class="tw"><table>
+<tr><th>Day</th><th>Dev A: backend</th><th>Dev B: frontend</th><th>Dev C: story and evidence</th></tr>
+<tr><td>Nov 7</td><td style="text-align:left">Test Save Agent actions in sandbox, move to SQLite with seed data, switch the metric, deploy the API to Render, point the webhook at it</td><td style="text-align:left">AG Grid: arms, subscribers and audit log grids; deploy the frontend</td><td style="text-align:left">Read the rules, contact merchants, write the 2:45 script, fill the roles</td></tr>
+<tr><td>Nov 8</td><td colspan="2" style="text-align:left">Hero flow runs 5 times in a row on the live URL by noon. Add "Real PayPal sandbox" and "Simulated time" labels.</td><td style="text-align:left">Merchant quote; rehearsal recording in the evening (this is the backup take)</td></tr>
+<tr><td>Nov 9</td><td colspan="3" style="text-align:left">Feature freeze at 10:00. Final video, Devpost entry with Limitations, README with the live URL. <b>Submit by 18:00.</b> Nov 10 is buffer only.</td></tr>
+</table></div>
+
+<h3>Video beat sheet (~2:45)</h3>
+<ul>
+<li><b>0:00</b> Maya runs a $15/month yoga studio on PayPal. Every cancel hurts.</li>
+<li><b>0:15</b> A real sandbox subscriber cancels. The Save Agent offers a downgrade, a real revise call runs, and the row lands in AG Grid.</li>
+<li><b>0:50</b> Experiments are locked: "You need about N sign-ups. Here's why."</li>
+<li><b>1:05</b> A larger merchant sets a goal. Gemini proposes 3 arms and rejects one PayPal can't roll out.</li>
+<li><b>1:35</b> Real sandbox plans are created, one real checkout runs, and the webhook arrives live.</li>
+<li><b>1:55</b> "We replay 60 days in 20 seconds" (labelled simulated). A guardrail pauses an arm. "93% sure Plan B converts more."</li>
+<li><b>2:20</b> Dry-run rollout with grandfathering, then the audit log.</li>
+<li><b>2:35</b> Merchant quote, live URL, and one line of honest limitations.</li>
+</ul>
+
+<h2>The one thing to do first</h2>
+<div class="first">In the next 2 hours, run every Save Agent action against the PayPal sandbox: downgrade, discounted plan, and suspend then reactivate. In the same window, read the official rules for the deadline, timezone and sponsor criteria. If the Save Agent's actions don't really work, the pitch has to change, and it's better to find that out today.</div>
+
+<h2>Advisor responses</h2>
+<details class="c1"><summary>The Contrarian <span class="tag">strongest per peer review</span></summary>
+<p><b>The flaw that sinks you if you leave it:</b> you can't show what you're selling.</p>
+<ul>
+<li>The LTV winner runs on seeded data, and seeded data makes any engine pick the winner you planted.</li>
+<li>A sharp judge will ask what in the demo is real. The answer is one sandbox subscription, verified separately.</li>
+</ul>
+<p><b>Your core loop contradicts itself:</b></p>
+<ul>
+<li><b>Rollout:</b> the AI suggests arms that change interval and trial, but PayPal only rolls out arms whose interval and trial match the baseline. Limit the agent to price-only arms, or show it rejecting arms PayPal can't roll out. That rejection is your best "AI meets real constraints" moment.</li>
+<li><b>Thompson sampling:</b> it needs fast rewards, but LTV takes months. Splitting by conversion and then judging on LTV is muddled statistics.</li>
+<li><b>Save Agent:</b> "pause" doesn't exist in PayPal, and the agent is deterministic rules. Calling rules an "agent" at an AI hackathon invites mockery.</li>
+<li><b>Market:</b> small merchants don't have the traffic to reach significance.</li>
+</ul>
+<p><b>Rot judges will see:</b></p>
+<ul>
+<li>Two stats engines and two guardrail modules. Delete the z-test one.</li>
+<li>In-memory storage leaves an empty app after a restart. Seed data on startup.</li>
+<li>The unsourced 80% claim.</li>
+<li>A sprawl of features on a thin frontend.</li>
+<li>Sponsor prizes with no sponsor code installed.</li>
+</ul>
+<p><b>What to do:</b></p>
+<ul>
+<li>Pick AG Grid and Render. Drop Bryntum, KERNEL and APIMatic.</li>
+<li>Demo a real chain: goal, then arms, then real sandbox plans, then a live webhook. Label everything after that "projected / backtest".</li>
+<li>Pitch it as "the PayPal-native experiment layer RevenueCat doesn't cover".</li>
+<li>Spend a full day on the video.</li>
+</ul>
+<p>Can it win? Not as it stands. A smaller, honest version can place.</p></details>
+<details class="c2"><summary>The First Principles Thinker</summary>
+<p><b>You're asking the wrong question.</b> "Is PlanLab winnable?" assumes the experiment engine is the product.</p>
+<ul>
+<li>Small merchants don't test prices because they lack sign-ups and LTV takes months, not because they're missing a Bayesian engine.</li>
+<li>A Beta-Binomial posterior on 40 sign-ups is a nice-looking way to say "we don't know yet". A sharp judge catches this in about 30 seconds.</li>
+</ul>
+<p><b>What works at n=1 is the Save Agent.</b> Churn happens one customer at a time, and the result shows up in days.</p>
+<p><b>Rebuild from the ground up:</b></p>
+<ul>
+<li>Reframe as "a PayPal subscription copilot that saves churning customers and suggests price changes when you have enough data".</li>
+<li>Lock experiments until the merchant has enough sign-ups. Saying so out loud shows judges you understand the statistics.</li>
+<li>Build the video on real PayPal objects: create a subscription, cancel it, the Save Agent steps in, a real plan change happens. Mark anything simulated.</li>
+<li>Delete one stats engine.</li>
+<li>Use AG Grid for the save-decision table, and Render with SQLite.</li>
+<li>Drop Bryntum, KERNEL, the AG Studio claim and the 80% claim, which argues against your own core feature.</li>
+</ul></details>
+<details class="c3"><summary>The Expansionist <span class="tag">biggest blind spot per peer review</span></summary>
+<p><b>You're pitching the weak half of your product.</b> Your hidden asset is that you're PayPal-native, and PayPal sees millions of merchants.</p>
+<ul>
+<li><b>Pooled priors:</b> seed each arm's Beta prior from a synthetic, labelled "PayPal benchmark" of similar merchants. Demo line: "Alone you'd need 4,000 sign-ups; with PayPal's network prior, 300." Experiment memory becomes cross-merchant learning.</li>
+<li><b>Promote the Save Agent:</b> reframe as a revenue copilot. The Save Agent keeps revenue today, and experiments grow it over time.</li>
+<li><b>Agentic commerce:</b> expose both agents as tools through PayPal Agent Toolkit or MCP.</li>
+<li><b>Sponsors:</b> AG Grid and Render are cheap. Cut Bryntum, KERNEL and APIMatic.</li>
+</ul></details>
+<details class="c4"><summary>The Outsider</summary>
+<p>Judges don't know RevenueCat, Thompson sampling or Beta-Binomial. To them, the jargon is noise, and they see "students built a dashboard with a chart".</p>
+<p><b>What a judge actually sees:</b></p>
+<ul>
+<li>Made-up numbers. The obvious question is "did anything real happen?"</li>
+<li>Two products. That says you couldn't choose.</li>
+<li>"AI that suggests prices", which any chatbot can do.</li>
+<li>Sponsor logos without a reason.</li>
+</ul>
+<p><b>What lands instantly:</b> the Save Agent.</p>
+<p><b>What to do:</b></p>
+<ul>
+<li>Tell one person's story: "Maya runs a $15/month yoga studio on PayPal."</li>
+<li>Show one real PayPal moment on screen.</li>
+<li>Say the simulation out loud: "We replay 90 days in 20 seconds."</li>
+<li>No stats words: "93% sure Plan B earns more."</li>
+<li>Delete the 80% claim.</li>
+</ul>
+<p>If a viewer can't repeat the pitch in one sentence, it isn't winnable yet.</p></details>
+<details class="c5"><summary>The Executor</summary>
+<p><b>Finishable in 72 hours only if you stop adding features today.</b></p>
+<ul>
+<li><b>Cut:</b> Bryntum, KERNEL, APIMatic, experiment memory, <code>stats.py</code>, the duplicate guardrail module and the 80% claim.</li>
+<li><b>Keep:</b> Render and AG Grid Community.</li>
+<li><b>Day 1:</b>
+<ul>
+<li>Dev A: SQLite, deploy to Render with a cron, point the webhook at it.</li>
+<li>Dev B: AG Grid grids, deploy the frontend.</li>
+<li>Dev C: 2:45 script and the hero flow.</li>
+</ul></li>
+<li><b>Day 2:</b> the hero flow runs 5 times in a row on the live URL by noon. Add Real/Simulated labels. Record a rehearsal in the evening.</li>
+<li><b>Day 3:</b> freeze at 10:00, record the video, write the Devpost entry with Limitations and the README, and submit by 18:00 Nov 9.</li>
+</ul>
+<p><b>Rule:</b> if it can't be shown in the video, nobody works on it.</p></details>
+
+<h2>Peer review highlights</h2>
+<details><summary>Show the peer review summary (5 reviewers, anonymized)</summary>
+<p class="muted">Mapping: A = Executor, B = Outsider, C = Contrarian, D = Expansionist, E = First Principles.</p>
+<ul>
+<li><b>Strongest: C (5 of 5 reviewers).</b> It was the only answer to find internal contradictions: the planted winner, delayed reward against Thompson sampling, and arms PayPal can't roll out. It turned the rollout limit into the best demo moment. Best combined plan: C's diagnosis, E's reframe and A's schedule.</li>
+<li><b>Biggest blind spot: D (5 of 5 reviewers).</b> It adds a day of new scope with 72 hours left. Its synthetic prior repeats the planted-winner flaw, and "4,000 vs 300" is another invented number.</li>
+<li><b>What all five advisors missed:</b>
+<ul>
+<li>A short-horizon decision metric.</li>
+<li>Verifying that Save Agent actions work in PayPal.</li>
+<li>Real merchant quotes.</li>
+<li>Reading the official rules and the deadline timezone.</li>
+<li>Pricing fairness and grandfathering.</li>
+<li>A backup video take and key hygiene.</li>
+<li>What Gemini adds over templates.</li>
+<li>Named owners for the roles.</li>
+</ul></li>
+</ul></details>
+
+<footer>Generated 7 Nov 2026 by an LLM Council (5 advisors, 5 anonymous peer reviews, 1 chairman) on the PlanLab repo at <code>D:\CODING\paypal-hackathon-</code>. Full transcript: <code>council-transcript-20261107.md</code>.</footer>
+</main></body>
+</html>

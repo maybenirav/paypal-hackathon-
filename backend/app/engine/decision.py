@@ -1,13 +1,22 @@
-"""Decision logic: pick a winner, keep testing, or stop an arm."""
+"""Decision logic: pick a winner, keep testing, or stop an arm.
+
+One method, Bayesian, on a metric you can observe now:
+  new MRR per visitor = paid conversion x monthly-equivalent price.
+A challenger wins when P(its MRR per visitor beats the baseline's) >= win_prob, it has enough
+paying subscribers, and no guardrail fires. 12-month LTV is reported as a projection only;
+it never decides anything, because it takes a year to observe.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 
 from .bayes import credible_interval, posterior, prob_beats
-from .guardrail import DEFAULT_GAMMA, GuardrailResult, check_guardrail
+from .guardrails import DEFAULT_GAMMA, GuardrailResult, check_guardrail
 from .ltv import ltv_12m, survival_from_churn
-from .stats import ZTestResult, two_proportion_z
+
+WIN_PROB = 0.95
+MIN_PAID = 30
 
 
 class Action(str, Enum):
@@ -19,20 +28,26 @@ class Action(str, Enum):
 @dataclass
 class ArmStats:
     arm_id: str
-    price: float            # monthly-equivalent revenue per active subscriber (M_arm)
+    price: float            # monthly-equivalent revenue per active subscriber
     visitors: int
     signups: int
-    churned: int            # churned among signups so far
-    survival: list[float] | None = None  # optional observed S(1..12)
+    churned: int            # paying subscribers who cancelled so far
+    paid: int | None = None  # signups that made at least one payment (None = same as signups)
+    survival: list[float] | None = None  # optional observed S(1..12) for the LTV projection
+
+    @property
+    def paid_n(self) -> int:
+        return self.signups if self.paid is None else self.paid
 
 
 @dataclass
 class ArmAnalysis:
     arm_id: str
-    conversion: float
+    conversion: float               # sign-ups / visitors
+    paid_conversion: float          # paying subscribers / visitors
+    mrr_per_visitor: float          # paid_conversion x monthly price (the decision metric)
     churn: float
-    ltv: float
-    ztest: ZTestResult | None
+    projected_ltv: float            # display only
     guardrail: GuardrailResult | None
     prob_beats_baseline: float | None = None
     conv_ci: tuple[float, float] | None = None
@@ -46,51 +61,42 @@ class Decision:
     reasons: dict[str, str] = field(default_factory=dict)
 
 
-def _ltv(arm: ArmStats, discount: float) -> tuple[float, float]:
-    churn = arm.churned / arm.signups if arm.signups else 0.0
-    surv = arm.survival or survival_from_churn(churn)
-    return ltv_12m(arm.price, surv, discount), churn
+def _analyse(a: ArmStats, discount: float) -> ArmAnalysis:
+    churn = a.churned / a.paid_n if a.paid_n else 0.0
+    surv = a.survival or survival_from_churn(churn)
+    paid_conv = a.paid_n / a.visitors if a.visitors else 0.0
+    ci = credible_interval(posterior(a.paid_n, a.visitors)) if a.visitors else None
+    return ArmAnalysis(a.arm_id, a.signups / a.visitors if a.visitors else 0.0, paid_conv,
+                       paid_conv * a.price, churn, ltv_12m(a.price, surv, discount), None, None, ci)
 
 
 def decide(baseline: ArmStats, arms: list[ArmStats], gamma: float = DEFAULT_GAMMA,
-           discount: float = 0.01, method: str = "z",
-           win_prob: float = 0.95) -> Decision:
-    """Evaluate every challenger against the baseline.
-
-    1. Any arm tripping the guardrail is stopped (first one reported).
-    2. Otherwise the challenger with significantly better conversion AND
-       higher 12-month LTV than baseline wins (highest LTV if several).
+           discount: float = 0.01, win_prob: float = WIN_PROB,
+           min_paid: int = MIN_PAID) -> Decision:
+    """1. Any challenger tripping the churn guardrail is stopped (first one reported).
+    2. Otherwise the challenger most likely to earn more per visitor wins, if that probability
+       is at least `win_prob` and it has `min_paid` paying subscribers.
     3. Otherwise keep testing.
     """
-    base_ltv, base_churn = _ltv(baseline, discount)
-    analyses: list[ArmAnalysis] = [ArmAnalysis(
-        baseline.arm_id,
-        baseline.signups / baseline.visitors if baseline.visitors else 0.0,
-        base_churn, base_ltv, None, None)]
+    base = _analyse(baseline, discount)
+    analyses = [base]
     stopped: list[ArmAnalysis] = []
     candidates: list[ArmAnalysis] = []
+    base_post = posterior(baseline.paid_n, baseline.visitors) if baseline.visitors else None
 
     for arm in arms:
-        ltv, churn = _ltv(arm, discount)
-        z = (two_proportion_z(baseline.signups, baseline.visitors,
-                              arm.signups, arm.visitors)
-             if baseline.visitors and arm.visitors else None)
-        g = (check_guardrail(baseline.churned, baseline.signups,
-                             arm.churned, arm.signups, gamma)
-             if baseline.signups and arm.signups else None)
-        a = ArmAnalysis(arm.arm_id, arm.signups / arm.visitors if arm.visitors else 0.0,
-                        churn, ltv, z, g)
-        if arm.visitors and baseline.visitors:
-            pa = posterior(arm.signups, arm.visitors)
-            a.prob_beats_baseline = prob_beats(pa, posterior(baseline.signups, baseline.visitors))
-            a.conv_ci = credible_interval(pa)
+        a = _analyse(arm, discount)
+        if baseline.paid_n and arm.paid_n:
+            a.guardrail = check_guardrail(baseline.churned, baseline.paid_n,
+                                          arm.churned, arm.paid_n, gamma)
+        if base_post and arm.visitors:
+            a.prob_beats_baseline = prob_beats(posterior(arm.paid_n, arm.visitors), base_post,
+                                               arm_scale=arm.price, base_scale=baseline.price)
         analyses.append(a)
-        if g and g.triggered:
+        if a.guardrail and a.guardrail.triggered:
             stopped.append(a)
-        elif method == "bayes":
-            if a.prob_beats_baseline is not None and a.prob_beats_baseline >= win_prob and ltv > base_ltv:
-                candidates.append(a)
-        elif z and z.significant and z.z > 0 and ltv > base_ltv:
+        elif (a.prob_beats_baseline is not None and a.prob_beats_baseline >= win_prob
+              and arm.paid_n >= min_paid):
             candidates.append(a)
 
     reasons: dict[str, str] = {}
@@ -102,12 +108,15 @@ def decide(baseline: ArmStats, arms: list[ArmStats], gamma: float = DEFAULT_GAMM
     if stopped:
         return Decision(Action.STOP_ARM, stopped[0].arm_id, analyses, reasons)
     if candidates:
-        best = max(candidates, key=lambda a: a.ltv)
-        evidence = (f"P(beats baseline)={best.prob_beats_baseline:.1%}, 95% credible interval "
-                    f"{best.conv_ci[0]:.1%} to {best.conv_ci[1]:.1%}" if method == "bayes"
-                    else f"Z={best.ztest.z:.2f}")
+        best = max(candidates, key=lambda a: a.mrr_per_visitor)
         reasons[best.arm_id] = (
-            f"Conversion {best.conversion:.1%} vs {analyses[0].conversion:.1%} "
-            f"({evidence}), 12-month LTV {best.ltv:.2f} vs {base_ltv:.2f}.")
+            f"{best.prob_beats_baseline:.0%} likely to earn more per visitor than the baseline: "
+            f"{best.mrr_per_visitor:.2f} vs {base.mrr_per_visitor:.2f} new MRR per visitor "
+            f"(paid conversion {best.paid_conversion:.1%}, 95% interval "
+            f"{best.conv_ci[0]:.1%} to {best.conv_ci[1]:.1%}).")
         return Decision(Action.WINNER, best.arm_id, analyses, reasons)
+    for a in analyses[1:]:
+        if a.prob_beats_baseline is not None:
+            reasons[a.arm_id] = (f"{a.prob_beats_baseline:.0%} likely to beat the baseline; "
+                                 f"needs {win_prob:.0%}.")
     return Decision(Action.KEEP_TESTING, None, analyses, reasons)

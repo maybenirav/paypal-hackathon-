@@ -1,5 +1,9 @@
 """Bayesian layer: Beta-Binomial posteriors, credible intervals, P(best), Thompson allocation.
 
+The decision metric is new MRR per visitor = paid conversion x monthly-equivalent price, so a
+cheaper arm can't "win" just by converting more. `scale` carries the price per arm: each
+posterior draw of the paid-conversion rate is multiplied by it before arms are compared.
+
 Deterministic (seeded) Monte Carlo so results are repeatable in tests and demos.
 """
 from __future__ import annotations
@@ -38,27 +42,35 @@ def credible_interval(p: Posterior, level: float = 0.95, seed: int = 0,
     return lo, hi
 
 
-def prob_best(posts: dict[str, Posterior], seed: int = 0, samples: int = SAMPLES) -> dict[str, float]:
-    """P(arm has the highest true rate) under the posteriors."""
+def prob_best(posts: dict[str, Posterior], seed: int = 0, samples: int = SAMPLES,
+              scale: dict[str, float] | None = None) -> dict[str, float]:
+    """P(arm has the highest true rate x scale) under the posteriors."""
     rng = random.Random(seed)
+    sc = scale or {}
     wins = {k: 0 for k in posts}
     for _ in range(samples):
-        draw = {k: rng.betavariate(p.alpha, p.beta) for k, p in posts.items()}
+        draw = {k: rng.betavariate(p.alpha, p.beta) * sc.get(k, 1.0) for k, p in posts.items()}
         wins[max(draw, key=draw.get)] += 1
     return {k: v / samples for k, v in wins.items()}
 
 
-def prob_beats(arm: Posterior, base: Posterior, seed: int = 0, samples: int = SAMPLES) -> float:
-    """P(arm's true rate > baseline's true rate)."""
+def prob_beats(arm: Posterior, base: Posterior, seed: int = 0, samples: int = SAMPLES,
+               arm_scale: float = 1.0, base_scale: float = 1.0) -> float:
+    """P(arm's true rate x arm_scale > baseline's true rate x base_scale)."""
     rng = random.Random(seed)
-    return sum(rng.betavariate(arm.alpha, arm.beta) > rng.betavariate(base.alpha, base.beta)
+    return sum(rng.betavariate(arm.alpha, arm.beta) * arm_scale
+               > rng.betavariate(base.alpha, base.beta) * base_scale
                for _ in range(samples)) / samples
 
 
 def thompson_allocation(posts: dict[str, Posterior], min_share: float = 0.05,
-                        seed: int = 0) -> dict[str, float]:
-    """Traffic share per arm = P(best), floored at min_share so no arm starves (exploration)."""
-    pb = prob_best(posts, seed)
+                        seed: int = 0, scale: dict[str, float] | None = None) -> dict[str, float]:
+    """Traffic share per arm = P(best), floored at min_share so no arm starves (exploration).
+
+    The reward is observed at checkout (paid conversion x price), so the bandit learns from
+    every sign-up instead of waiting months for lifetime value.
+    """
+    pb = prob_best(posts, seed, scale=scale)
     n = len(posts)
     floor = min(min_share, 1 / n)
     raw = {k: max(v, floor) for k, v in pb.items()}
