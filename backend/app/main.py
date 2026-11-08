@@ -64,6 +64,10 @@ app.include_router(paypal_tx_router)
 from app.db import ensure_loaded as load_supabase, init_app as init_db  # noqa: E402
 from app.db_routes import router as db_router  # noqa: E402
 app.include_router(db_router)
+from app.sim_routes import router as sim_router  # noqa: E402  Person D: simulated clock
+app.include_router(sim_router)
+from app.demo_routes import router as demo_router  # noqa: E402  Person D: one-call Run demo
+app.include_router(demo_router)
 init_db(app)
 from fastapi.responses import RedirectResponse  # noqa: E402
 
