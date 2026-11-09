@@ -75,3 +75,4 @@ button.small { padding:5px 10px; font-size:13px; }
 .arms-grid .ag-grid-scrolling-rows.ag-layout-auto-height { min-height: 42px !important; }
 .arms-grid .ag-grid-pinned-top-rows { min-height: 0 !important; }
 .ci-range { height:6px; top:2px; }
+button.secondary { background:transparent; border:1px solid var(--line); color:var(--text); }

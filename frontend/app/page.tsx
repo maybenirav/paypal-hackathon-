@@ -15,6 +15,7 @@ import SavePanel from "./SavePanel";
 // AG Grid and Bryntum touch the DOM, so they render on the client only.
 const ArmsGrid = dynamic(() => import("./ArmsGrid"), { ssr: false });
 const Timeline = dynamic(() => import("./Timeline"), { ssr: false });
+const InsightsPanel = dynamic(() => import("./InsightsPanel"), { ssr: false });
 
 const ROLLOUT_LABEL: Record<string, string> = {
   baseline: "baseline", in_place: "price can change in place", new_signups_only: "new sign-ups only",
@@ -241,6 +242,8 @@ export default function Home() {
           <Timeline key={JSON.stringify(timeline)} data={timeline} />
         </section>
       )}
+
+      <InsightsPanel experimentId={expId} />
     </main>
   );
 }
