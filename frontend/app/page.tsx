@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import {
-  approveRollout, askAssistant, createExperiment, decideExperiment, getGuardrails, getMetrics, getTimeline,
+  LLM_LABEL, approveRollout, askAssistant, createExperiment, decideExperiment, getGuardrails, getMetrics, getTimeline,
   health, kernelCheckout, kernelJob, listExperiments, proposeRollout, publishPlans, resetDemo, runDemo,
   type AskResponse, type CheckoutJob, type DecisionResponse, type Experiment, type GuardrailArm,
   type Metrics, type Rollout, type Timeline as TimelineData,
@@ -31,7 +31,7 @@ export default function Home() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [decision, setDecision] = useState<DecisionResponse | null>(null);
-  const [question, setQuestion] = useState("show arms with churn above baseline");
+  const [question, setQuestion] = useState("which arms earn more per visitor than baseline without more churn?");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
   const [guards, setGuards] = useState<GuardrailArm[]>([]);
   const [rollout, setRollout] = useState<Rollout | null>(null);
@@ -140,7 +140,7 @@ export default function Home() {
 
         {created && (
           <>
-            <h3>Arms the agent proposed <span className="sub">({created.source === "gemini" ? "Gemini" : "offline fallback"}, checked against PayPal&apos;s rules)</span></h3>
+            <h3>Arms the agent proposed <span className="sub">({LLM_LABEL[created.source] ?? "offline fallback"}, checked against PayPal&apos;s rules)</span></h3>
             <table>
               <thead><tr><th>Arm</th><th>Price</th><th>Trial</th><th>Why</th><th>If it wins</th></tr></thead>
               <tbody>
@@ -187,7 +187,7 @@ export default function Home() {
       {metrics && rows.length > 0 && (
         <section className="card">
           <h2>Results <span className="sub">decided on new monthly revenue per visitor, observable at checkout</span></h2>
-          <ArmsGrid rows={rows} answer={answer} />
+          <ArmsGrid rows={rows} answer={answer} guards={guards} onReset={() => setAnswer(null)} />
           <div className="row">
             <button disabled={busy} onClick={onDecide}>Run analysis</button>
             <input style={{ flex: 1, minWidth: 240 }} value={question} onChange={(e) => setQuestion(e.target.value)}

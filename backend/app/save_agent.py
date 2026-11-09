@@ -87,7 +87,7 @@ _KEYWORDS: list[tuple[ReasonHint, str]] = [
 
 
 def classify_reason(text: str | None, use_llm: bool = True) -> tuple[ReasonHint, str]:
-    """Free-text cancel reason -> (hint, source). Gemini when configured, keywords otherwise."""
+    """Free-text cancel reason -> (hint, source). An LLM when configured, keywords otherwise."""
     if not text or not text.strip():
         return "unknown", "none"
     if use_llm and llm.enabled():
@@ -98,7 +98,7 @@ def classify_reason(text: str | None, use_llm: bool = True) -> tuple[ReasonHint,
                 temperature=0, timeout=12).lower()
             word = re.sub(r"[^a-z_]", "", word)
             if word in ("price", "not_using", "card", "unknown"):
-                return word, "gemini"  # type: ignore[return-value]
+                return word, llm.provider_used()  # type: ignore[return-value]
         except Exception:
             pass
     low = text.lower()

@@ -14,8 +14,10 @@ export type Readiness = {
   monthly_visitors: number | null; days_needed: number | null; feasible: boolean | null; message: string;
 };
 export type Rejected = { arm: Arm; errors: string[] };
+export type LlmSource = "gemini" | "groq" | "ollama";
+export const LLM_LABEL: Record<string, string> = { gemini: "Gemini", groq: "Groq", ollama: "Ollama" };
 export type Experiment = {
-  id: string; source: "gemini" | "fallback"; arms: Arm[]; validation: ArmValidation[];
+  id: string; source: LlmSource | "fallback"; arms: Arm[]; validation: ArmValidation[];
   rejected: Rejected[]; readiness: Readiness;
 };
 export type ExperimentSummary = { id: string; goal: string; status: string; events: number; created_at: string };
@@ -41,9 +43,10 @@ export type DecisionResponse = {
   action: "stop_arm" | "winner" | "keep_testing"; arm_id: string | null;
   reasons: Record<string, string>; explanation: string;
 };
+export type GridFilter = { metric: keyof Row; op: ">" | "<"; value: number };
 export type AskResponse = {
-  answer: string; rows: Row[];
-  filter: { metric: keyof Row; op: ">" | "<"; value: number } | null;
+  answer: string; rows: Row[]; source: LlmSource | "rules";
+  filters: GridFilter[]; filter: GridFilter | null;
   sort: { metric: keyof Row; desc: boolean } | null; chart: { metric: string } | null;
 };
 export type GuardrailArm = {
@@ -115,4 +118,5 @@ export const cancelIntent = (subscription_id: string, reason_text: string) =>
   post<SaveAction>("/save/cancel-intent", { subscription_id, reason_text });
 export const setupSavePlans = (experiment_id: string) =>
   post<{ downgrade_plan_id: string; discount_plan_id: string }>("/save/plans/setup", { experiment_id });
-export const health = () => get<{ ok: boolean; save_agent_live: boolean }>("/health");
+export const health = () => get<{ ok: boolean; save_agent_live: boolean;
+  llm: { provider: LlmSource; model: string; cooldown_s: number }[] }>("/health");

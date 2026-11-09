@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
-import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import type { CellValueChangedEvent, ColDef, ICellRendererParams, IRowNode, RowClassRules } from "ag-grid-community";
 import {
-  cancelIntent, getSaveLog, overrideSave, saveSweep, setupSavePlans,
+  LLM_LABEL, cancelIntent, getSaveLog, overrideSave, saveSweep, setupSavePlans,
   type SaveAction, type SaveLog,
 } from "./api";
 import { gridTheme, money } from "./grid";
@@ -21,6 +21,9 @@ export default function SavePanel({ experimentId, live, onChange }: {
   const [subId, setSubId] = useState("");
   const [reason, setReason] = useState("Honestly it's a bit too expensive for me right now");
   const [last, setLast] = useState<SaveAction | null>(null);
+  const [search, setSearch] = useState("");
+  const [realOnly, setRealOnly] = useState(false);
+  const grid = useRef<AgGridReact<SaveAction>>(null);
 
   const refresh = useCallback(async () => setLog(await getSaveLog()), []);
   useEffect(() => { refresh().catch(() => {}); }, [refresh]);
@@ -40,26 +43,39 @@ export default function SavePanel({ experimentId, live, onChange }: {
     { field: "reason_text", headerName: "Customer said", flex: 1, minWidth: 170,
       valueFormatter: (p) => p.value ?? (p.data?.trigger === "PAYMENT_FAILED" ? "(card payment failed)" : "–") },
     { field: "reason_hint", headerName: "Understood as", width: 125,
-      valueFormatter: (p) => `${p.value}${p.data?.reason_source === "gemini" ? " · AI" : ""}` },
-    { field: "kind", headerName: "Offer", width: 105, valueFormatter: (p) => LABEL[p.value] ?? p.value },
-    { field: "message", headerName: "What the customer sees", flex: 1.4, minWidth: 220, wrapText: true, autoHeight: true },
+      valueFormatter: (p) => `${p.value}${p.data && LLM_LABEL[p.data.reason_source] ? " · AI" : ""}` },
+    { field: "kind", headerName: "Offer (click to override)", width: 175, refData: LABEL,
+      cellEditor: "agSelectCellEditor", cellEditorParams: { values: [...KINDS] }, singleClickEdit: true,
+      editable: (p) => !busy && p.data?.status !== "overridden",
+      tooltipValueGetter: (p) => p.data?.status === "overridden"
+        ? `Overridden by the merchant: ${p.data.override_note || "no note"}` : "Click to replace the agent's offer",
+      cellRenderer: (p: ICellRendererParams<SaveAction>) => (
+        <span className={p.data?.status === "overridden" ? "struck" : "editable-cell"}>
+          {LABEL[p.value] ?? p.value}{p.data?.overridden_by && <span className="badge real small" style={{ marginLeft: 6 }}>merchant</span>}
+        </span>) },
+    { field: "message", headerName: "What the customer sees", flex: 1.4, minWidth: 220, wrapText: true, autoHeight: true,
+      cellStyle: { lineHeight: "1.45", paddingTop: 8, paddingBottom: 8 } },
     { field: "status", headerName: "PayPal", width: 150,
       cellRenderer: (p: ICellRendererParams<SaveAction>) => p.data?.approve_url
         ? <a href={p.data.approve_url} target="_blank" rel="noreferrer">awaiting buyer ✓</a>
         : <span className={`badge ${["failed", "overridden"].includes(p.value) ? "bad" : "ok"}`}>{p.value}</span> },
-    { headerName: "Override", width: 130, sortable: false,
-      cellRenderer: (p: ICellRendererParams<SaveAction>) => {
-        const a = p.data!;
-        if (a.status === "overridden") return <span className="sub">overridden</span>;
-        return (
-          <select disabled={busy} defaultValue="" onChange={(e) => e.target.value &&
-            run(() => overrideSave(a.id, e.target.value, "merchant override"))}>
-            <option value="">override…</option>
-            {KINDS.filter((k) => k !== a.kind).map((k) => <option key={k} value={k}>{LABEL[k]}</option>)}
-          </select>
-        );
-      } },
   ], [busy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The merchant overrides the agent by editing the Offer cell; the backend logs a new action
+  // (and makes the PayPal call) and marks the original as overridden.
+  const onCellValueChanged = (e: CellValueChangedEvent<SaveAction>) => {
+    if (e.colDef.field !== "kind" || !e.data || e.newValue === e.oldValue) return;
+    run(() => overrideSave(e.data!.id, e.newValue, "merchant override (edited in grid)"));
+  };
+
+  const rowClassRules = useMemo<RowClassRules<SaveAction>>(() => ({
+    "row-stopped": (p) => p.data?.status === "overridden",
+    "row-real": (p) => p.data?.simulated === false,
+  }), []);
+  const isExternalFilterPresent = useCallback(() => realOnly, [realOnly]);
+  const doesExternalFilterPass = useCallback((n: IRowNode<SaveAction>) => !n.data?.simulated, []);
+  useEffect(() => { grid.current?.api?.onFilterChanged(); }, [realOnly]);
+  const realCount = log?.actions.filter((a) => !a.simulated).length ?? 0;
 
   return (
     <section className="card hero">
@@ -89,7 +105,7 @@ export default function SavePanel({ experimentId, live, onChange }: {
       </div>
       {last && (
         <div className="callout">
-          <b>{LABEL[last.kind]}</b> · understood as “{last.reason_hint}”{last.reason_source === "gemini" && " by Gemini"} ·{" "}
+          <b>{LABEL[last.kind]}</b> · understood as “{last.reason_hint}”{LLM_LABEL[last.reason_source] && ` by ${LLM_LABEL[last.reason_source]}`} ·{" "}
           {last.message}{" "}
           {last.approve_url && <a href={last.approve_url} target="_blank" rel="noreferrer">Customer confirms on PayPal →</a>}
         </div>
@@ -100,9 +116,23 @@ export default function SavePanel({ experimentId, live, onChange }: {
           onClick={() => run(() => setupSavePlans(experimentId!))}>Create Lite + discount plans in PayPal</button>
       </div>
       {error && <p className="err">{error}</p>}
-      <div style={{ height: 320, marginTop: 12 }}>
-        <AgGridReact<SaveAction> theme={gridTheme} rowData={log?.actions ?? []} columnDefs={cols}
+      <div className="grid-bar" style={{ marginTop: 12 }}>
+        <input className="grid-search" placeholder="Search the log: subscriber, reason, offer…" value={search}
+          onChange={(e) => setSearch(e.target.value)} />
+        <span className="grid-actions">
+          <label className="toggle"><input type="checkbox" checked={realOnly} onChange={(e) => setRealOnly(e.target.checked)} />
+            Real PayPal only ({realCount})</label>
+          <button className="ghost small" onClick={() => grid.current?.api?.exportDataAsCsv({ fileName: "save-agent-log.csv" })}>Export CSV</button>
+        </span>
+      </div>
+      <div style={{ height: 340 }}>
+        <AgGridReact<SaveAction> ref={grid} theme={gridTheme} rowData={log?.actions ?? []} columnDefs={cols}
           getRowId={(p) => p.data.id} pagination paginationPageSize={20} paginationPageSizeSelector={false}
+          quickFilterText={search} isExternalFilterPresent={isExternalFilterPresent}
+          doesExternalFilterPass={doesExternalFilterPass} rowClassRules={rowClassRules}
+          onCellValueChanged={onCellValueChanged} tooltipShowDelay={200}
+          initialState={{ sort: { sortModel: [{ colId: "ts", sort: "desc" }] } }}
+          defaultColDef={{ sortable: true, resizable: true, filter: true }}
           overlayNoRowsTemplate="No cancel attempts yet. Run the sweep or click cancel on a real subscription." />
       </div>
     </section>

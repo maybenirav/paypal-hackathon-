@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from . import config, simulate
 from .agent.explain import explain
+from .agent.llm import status as llm_status, warm_up as llm_warm_up
 from .agent.pricing_agent import fallback_arms, generate_arms
 from .assistant import ask
 from .engine import bayes
@@ -47,6 +48,7 @@ def seed_demo() -> Experiment:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     load_supabase()   # with DATABASE_URL set, saved experiments come from Supabase first
+    llm_warm_up()     # load a local Ollama model, if one is configured
     if not store.list() and (os.getenv("SEED_DEMO") or "true").lower() != "false":
         seed_demo()
         save_sweep(limit=40)   # simulated cancel attempts -> Save Agent decisions (dry run)
@@ -123,7 +125,8 @@ def _start(exp: Experiment) -> datetime:
 @app.get("/health")
 def health():
     return {"ok": True, "experiments": len(store.list()),
-            "save_agent_live": save_log.executor.__name__ != "dry_run_executor"}
+            "save_agent_live": save_log.executor.__name__ != "dry_run_executor",
+            "llm": llm_status()}
 
 
 # ---- stateless endpoints -------------------------------------------------

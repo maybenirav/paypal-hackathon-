@@ -3,6 +3,8 @@ import os
 # Must run before any app import: isolated in-memory DB, no network, no seeded demo.
 os.environ["PLANLAB_DB"] = ":memory:"
 os.environ["GEMINI_API_KEY"] = ""
+os.environ["GROQ_API_KEY"] = ""
+os.environ["OLLAMA_MODEL"] = ""
 os.environ["SEED_DEMO"] = "false"
 os.environ["SAVE_AGENT_LIVE"] = "false"
 

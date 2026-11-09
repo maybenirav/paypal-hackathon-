@@ -34,7 +34,7 @@ class GoalRequest(BaseModel):
 
 class ArmsResponse(BaseModel):
     arms: list[Arm]
-    source: Literal["gemini", "fallback"]
+    source: Literal["gemini", "groq", "ollama", "fallback"]
     validation: list["ArmValidation"]
 
 

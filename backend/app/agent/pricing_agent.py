@@ -46,8 +46,8 @@ def _gemini(req: GoalRequest, mem: Memory) -> list[Arm]:
                    "were stopped; build on winners):\n" + past)
     text = llm.generate(prompt, json_mode=True, temperature=0.4)
     data = json.loads(text)
-    if isinstance(data, dict):
-        data = data.get("arms", [])
+    if isinstance(data, dict):  # JSON-object modes wrap the array: {"arms": [...]} / {"items": [...]}
+        data = data.get("arms") or next((v for v in data.values() if isinstance(v, list)), [])
     arms = [Arm(currency=req.currency, **{k: v for k, v in a.items() if k != "currency"})
             for a in data]
     if not 2 <= len(arms) <= 4:
@@ -58,11 +58,11 @@ def _gemini(req: GoalRequest, mem: Memory) -> list[Arm]:
 
 
 def generate_arms(req: GoalRequest, mem: Memory | None = None) -> tuple[list[Arm], str]:
-    """Returns (arms, source) where source is 'gemini' or 'fallback'."""
+    """Returns (arms, source): the LLM provider that answered ('gemini', 'groq', 'ollama') or 'fallback'."""
     mem = mem if mem is not None else default_memory
     if llm.enabled():
         try:
-            return _gemini(req, mem), "gemini"
+            return _gemini(req, mem), llm.provider_used()
         except Exception:  # network, overload, bad JSON, bad schema -> degrade gracefully
             pass
     return adapt_fallback(fallback_arms(req.model_copy(update={"num_arms": 4})), mem)[:req.num_arms], "fallback"
