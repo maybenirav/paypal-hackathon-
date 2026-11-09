@@ -1,0 +1,2544 @@
+{
+  "info": {
+    "name": "PlanLab API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "AI pricing experiments and a Save Agent on PayPal Subscriptions. Set baseUrl in the PlanLab environment, then run 'Demo flow'."
+  },
+  "variable": [
+    {
+      "key": "experimentId",
+      "value": ""
+    },
+    {
+      "key": "pausedArm",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Demo flow (run in order)",
+      "description": "The 3-minute demo as API calls.",
+      "item": [
+        {
+          "name": "1. Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Agent designs an experiment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"goal\": \"Raise annual-plan uptake without hurting 60-day retention.\",\n  \"current_price\": 15,\n  \"num_arms\": 3,\n  \"monthly_visitors\": 12000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));",
+                  "pm.test('2-4 arms', () => pm.expect(pm.response.json().arms.length).to.be.within(2, 4));",
+                  "pm.collectionVariables.set('experimentId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Run the guardrail scenario (synthetic cohort)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/{{experimentId}}/demo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                "{{experimentId}}",
+                "demo"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scenario\": \"guardrail\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Metrics, credible intervals, traffic split",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/{{experimentId}}/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                "{{experimentId}}",
+                "metrics"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Guardrail status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/{{experimentId}}/guardrails",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                "{{experimentId}}",
+                "guardrails"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Decide: the agent pauses the risky arm",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/{{experimentId}}/decide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                "{{experimentId}}",
+                "decide"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));",
+                  "pm.test('an arm was stopped', () => pm.expect(pm.response.json().action).to.eql('stop_arm'));",
+                  "pm.collectionVariables.set('pausedArm', pm.response.json().arm_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Ask why it paused",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/why",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "decisions",
+                "why"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"why did arm {{pausedArm}} pause?\",\n  \"experiment_id\": \"{{experimentId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));",
+                  "pm.test('answer found', () => pm.expect(pm.response.json().matches).to.not.be.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. Ask the grid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/{{experimentId}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                "{{experimentId}}",
+                "ask"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"arms with churn above baseline\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. Save Agent: handle failed payments and cancel intents",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/save/sweep?limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "sweep"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Save Agent audit log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/save/log",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "log"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. Import 12 months of history (sample)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/connect/backfill/sample?months=12",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connect",
+                "backfill",
+                "sample"
+              ],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "12"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. Cohorts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/connect/cohorts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connect",
+                "cohorts"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13. Tools for outside agents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/agent/tools",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agent",
+                "tools"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.below(300));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "admin",
+      "item": [
+        {
+          "name": "POST /admin/reset-demo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reset-demo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reset-demo"
+              ]
+            },
+            "description": "Reset Demo"
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent",
+      "item": [
+        {
+          "name": "POST /agent/arms",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/agent/arms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agent",
+                "arms"
+              ]
+            },
+            "description": "Agent Arms",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"goal\": \"string\",\n  \"current_price\": 10.0,\n  \"currency\": \"USD\",\n  \"num_arms\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent-tools",
+      "item": [
+        {
+          "name": "GET /agent/tools",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/agent/tools",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agent",
+                "tools"
+              ]
+            },
+            "description": "List Tools"
+          }
+        },
+        {
+          "name": "POST /agent/tools/{name}",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/agent/tools/:name",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agent",
+                "tools",
+                ":name"
+              ],
+              "variable": [
+                {
+                  "key": "name",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Run Tool",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "connect",
+      "item": [
+        {
+          "name": "POST /connect/backfill",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/connect/backfill",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connect",
+                "backfill"
+              ],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "12",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Backfill"
+          }
+        },
+        {
+          "name": "POST /connect/backfill/sample",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/connect/backfill/sample",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connect",
+                "backfill",
+                "sample"
+              ],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "12",
+                  "disabled": true
+                },
+                {
+                  "key": "seed",
+                  "value": "11",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Backfill Sample"
+          }
+        },
+        {
+          "name": "GET /connect/cohorts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/connect/cohorts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connect",
+                "cohorts"
+              ]
+            },
+            "description": "Cohorts"
+          }
+        }
+      ]
+    },
+    {
+      "name": "database",
+      "item": [
+        {
+          "name": "GET /db/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/db/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "db",
+                "health"
+              ]
+            },
+            "description": "Db Health"
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/gantt",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/gantt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "gantt"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Gantt Get"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/gantt/generate",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/gantt/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "gantt",
+                "generate"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "string",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Gantt Generate"
+          }
+        },
+        {
+          "name": "PATCH /gantt/tasks/{task_id}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gantt/tasks/:task_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gantt",
+                "tasks",
+                ":task_id"
+              ],
+              "variable": [
+                {
+                  "key": "task_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Gantt Update Task",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /grid-views",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/grid-views",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grid-views"
+              ],
+              "query": [
+                {
+                  "key": "grid_id",
+                  "value": "string",
+                  "disabled": true
+                },
+                {
+                  "key": "experiment_id",
+                  "value": "string",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Grid Views List"
+          }
+        },
+        {
+          "name": "POST /grid-views",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/grid-views",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grid-views"
+              ]
+            },
+            "description": "Grid Views Create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grid_id\": \"string\",\n  \"name\": \"string\",\n  \"column_state\": [],\n  \"filter_model\": {},\n  \"sort_model\": [],\n  \"is_default\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PUT /grid-views/{view_id}",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/grid-views/:view_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grid-views",
+                ":view_id"
+              ],
+              "variable": [
+                {
+                  "key": "view_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Grid Views Update",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grid_id\": \"string\",\n  \"name\": \"string\",\n  \"column_state\": [],\n  \"filter_model\": {},\n  \"sort_model\": [],\n  \"is_default\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /grid-views/{view_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/grid-views/:view_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grid-views",
+                ":view_id"
+              ],
+              "variable": [
+                {
+                  "key": "view_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Grid Views Delete"
+          }
+        },
+        {
+          "name": "GET /dashboards",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards"
+              ],
+              "query": [
+                {
+                  "key": "experiment_id",
+                  "value": "string",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Dashboards List"
+          }
+        },
+        {
+          "name": "POST /dashboards",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards"
+              ]
+            },
+            "description": "Dashboards Create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"layout\": {},\n  \"created_by\": \"user\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PUT /dashboards/{dashboard_id}",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/:dashboard_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                ":dashboard_id"
+              ],
+              "variable": [
+                {
+                  "key": "dashboard_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Dashboards Update",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"layout\": {},\n  \"created_by\": \"user\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /dashboards/{dashboard_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/:dashboard_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                ":dashboard_id"
+              ],
+              "variable": [
+                {
+                  "key": "dashboard_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Dashboards Delete"
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/snapshots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/snapshots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "snapshots"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Snapshots List"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/snapshots",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/snapshots?day=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "snapshots"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "day",
+                  "value": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Snapshots Capture"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/snapshots/backfill",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/snapshots/backfill",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "snapshots",
+                "backfill"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "every",
+                  "value": "7",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Snapshots Backfill"
+          }
+        }
+      ]
+    },
+    {
+      "name": "decisions",
+      "item": [
+        {
+          "name": "GET /decisions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "decisions"
+              ],
+              "query": [
+                {
+                  "key": "experiment_id",
+                  "value": "string",
+                  "disabled": true
+                },
+                {
+                  "key": "kind",
+                  "value": "string",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List Decisions"
+          }
+        },
+        {
+          "name": "POST /decisions/why",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/why",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "decisions",
+                "why"
+              ]
+            },
+            "description": "Ask Why",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /decisions/status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "decisions",
+                "status"
+              ]
+            },
+            "description": "Status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "demo",
+      "item": [
+        {
+          "name": "POST /demo/run",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/demo/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "demo",
+                "run"
+              ]
+            },
+            "description": "Demo Run",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"goal\": \"Raise annual-plan uptake without hurting 60-day retention\",\n  \"current_price\": 10.0,\n  \"real_signups\": 2,\n  \"publish\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /demo/{exp_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/demo/:exp_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "demo",
+                ":exp_id"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Demo Status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "engine",
+      "item": [
+        {
+          "name": "POST /engine/decide",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/engine/decide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "engine",
+                "decide"
+              ]
+            },
+            "description": "Engine Decide",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"baseline\": {\n    \"arm_id\": \"string\",\n    \"price\": 0,\n    \"visitors\": 0,\n    \"signups\": 0,\n    \"churned\": 0\n  },\n  \"arms\": [\n    {\n      \"arm_id\": \"string\",\n      \"price\": 0,\n      \"visitors\": 0,\n      \"signups\": 0,\n      \"churned\": 0\n    }\n  ],\n  \"gamma\": 1.3,\n  \"discount\": 0.01\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "experiments",
+      "item": [
+        {
+          "name": "GET /experiments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments"
+              ]
+            },
+            "description": "List Experiments"
+          }
+        },
+        {
+          "name": "POST /experiments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments"
+              ]
+            },
+            "description": "Create Experiment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"goal\": \"string\",\n  \"current_price\": 10.0,\n  \"currency\": \"USD\",\n  \"num_arms\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "events"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Add Events",
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"experiment_id\": \"string\",\n    \"arm_id\": \"string\",\n    \"subscriber_id\": \"string\",\n    \"type\": \"VISIT\",\n    \"ts\": \"string\",\n    \"amount\": 0,\n    \"source\": \"real\"\n  }\n]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/demo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/demo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "demo"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Run Demo",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scenario\": \"winner\",\n  \"seed\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "metrics"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Metrics"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/decide",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/decide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "decide"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "gamma",
+                  "value": "1.3",
+                  "disabled": true
+                },
+                {
+                  "key": "days",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Experiment Decide"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/ask",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "ask"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Experiment Ask",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/timeline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/timeline",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "timeline"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "checkpoint_days",
+                  "value": "14",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Timeline"
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/guardrails",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/guardrails",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "guardrails"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Get Guardrails"
+          }
+        },
+        {
+          "name": "PUT /experiments/{exp_id}/guardrails",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/guardrails",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "guardrails"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Set Guardrails",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/allocation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/allocation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "allocation"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Allocation"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/assign",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "assign"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Assign"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/rollout/propose",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/rollout/propose",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "rollout",
+                "propose"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Rollout Propose"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/rollout/approve",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/rollout/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "rollout",
+                "approve"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Rollout Approve"
+          }
+        }
+      ]
+    },
+    {
+      "name": "health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "memory",
+      "item": [
+        {
+          "name": "GET /memory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/memory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "memory"
+              ]
+            },
+            "description": "Get Memory"
+          }
+        }
+      ]
+    },
+    {
+      "name": "paypal",
+      "item": [
+        {
+          "name": "GET /paypal/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paypal/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "paypal",
+                "health"
+              ]
+            },
+            "description": "Paypal Health"
+          }
+        },
+        {
+          "name": "POST /paypal/subscriptions/{subscription_id}/cancel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/paypal/subscriptions/:subscription_id/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "paypal",
+                "subscriptions",
+                ":subscription_id",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "subscription_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Cancel Subscription",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Cancelled from PlanLab\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/paypal/publish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/paypal/publish",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "paypal",
+                "publish"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Publish Plans"
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/paypal/plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/paypal/plans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "paypal",
+                "plans"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "List Plans"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/paypal/subscribe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/paypal/subscribe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "paypal",
+                "subscribe"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Subscribe",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/paypal/sync/{subscription_id}",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/paypal/sync/:subscription_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "paypal",
+                "sync",
+                ":subscription_id"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                },
+                {
+                  "key": "subscription_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Sync Subscription"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/kernel/checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/kernel/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "kernel",
+                "checkout"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Kernel Checkout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"count\": 1,\n  \"buyer\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/kernel/checkout/{job_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/kernel/checkout/:job_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "kernel",
+                "checkout",
+                ":job_id"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                },
+                {
+                  "key": "job_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Kernel Checkout Status"
+          }
+        },
+        {
+          "name": "GET /paypal/transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paypal/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "paypal",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "All Transactions"
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/paypal/transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/paypal/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "paypal",
+                "transactions"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Experiment Transactions"
+          }
+        }
+      ]
+    },
+    {
+      "name": "paypal-webhooks",
+      "item": [
+        {
+          "name": "POST /webhooks/paypal",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/paypal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "paypal"
+              ]
+            },
+            "description": "Paypal Webhook"
+          }
+        },
+        {
+          "name": "POST /webhooks/billing",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/billing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "billing"
+              ]
+            },
+            "description": "Paypal Webhook"
+          }
+        }
+      ]
+    },
+    {
+      "name": "save",
+      "item": [
+        {
+          "name": "GET /save/rules",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/save/rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "rules"
+              ]
+            },
+            "description": "Get Rules"
+          }
+        },
+        {
+          "name": "PUT /save/rules",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/save/rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "rules"
+              ]
+            },
+            "description": "Put Rules",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allow_pause\": true,\n  \"allow_downgrade\": true,\n  \"allow_discount\": true,\n  \"max_discount_pct\": 20,\n  \"discount_cycles\": 3,\n  \"pause_days\": 30,\n  \"max_saves_per_subscriber\": 1,\n  \"downgrade_price_pct\": 60\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /save/plans/setup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/save/plans/setup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "plans",
+                "setup"
+              ]
+            },
+            "description": "Setup Save Plans",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"experiment_id\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /save/handle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/save/handle",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "handle"
+              ]
+            },
+            "description": "Save Handle",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscriber_id\": \"string\",\n  \"subscription_id\": \"string\",\n  \"plan_id\": \"PLAN_ID\",\n  \"trigger\": \"PAYMENT_FAILED\",\n  \"tenure_days\": 0,\n  \"payments_made\": 0,\n  \"failed_payments\": 0,\n  \"previous_saves\": 0,\n  \"price\": 0,\n  \"currency\": \"USD\",\n  \"reason_hint\": \"unknown\",\n  \"simulated\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /save/cancel-intent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/save/cancel-intent",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "cancel-intent"
+              ]
+            },
+            "description": "Cancel Intent",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"string\",\n  \"reason_text\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /save/log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/save/log",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "log"
+              ]
+            },
+            "description": "Get Save Log"
+          }
+        },
+        {
+          "name": "POST /save/log/{action_id}/override",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/save/log/:action_id/override",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "log",
+                ":action_id",
+                "override"
+              ],
+              "variable": [
+                {
+                  "key": "action_id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Override",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"string\",\n  \"note\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /save/sweep",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/save/sweep",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "save",
+                "sweep"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Save Sweep"
+          }
+        }
+      ]
+    },
+    {
+      "name": "simulation",
+      "item": [
+        {
+          "name": "POST /experiments/{exp_id}/sim/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/sim/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "sim",
+                "start"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Sim Start",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/sim/pause",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/sim/pause",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "sim",
+                "pause"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Sim Pause"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/sim/resume",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/sim/resume",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "sim",
+                "resume"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Sim Resume"
+          }
+        },
+        {
+          "name": "POST /experiments/{exp_id}/sim/step",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/sim/step",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "sim",
+                "step"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "1",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Sim Step"
+          }
+        },
+        {
+          "name": "GET /experiments/{exp_id}/sim/status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/experiments/:exp_id/sim/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experiments",
+                ":exp_id",
+                "sim",
+                "status"
+              ],
+              "variable": [
+                {
+                  "key": "exp_id",
+                  "value": "{{experimentId}}"
+                }
+              ]
+            },
+            "description": "Sim Status"
+          }
+        }
+      ]
+    }
+  ]
+}
