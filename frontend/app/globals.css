@@ -45,3 +45,4 @@ a { color:#8fb4ff; }
 .gantt-wrap { height:340px; display:flex; flex-direction:column; }
 .gantt-wrap > * { flex:1; }
 @media (max-width:640px) { main { padding:20px 16px 48px; } .row > * { flex:1 1 100%; } }
+button.secondary { background:transparent; border:1px solid var(--line); color:var(--text); }
