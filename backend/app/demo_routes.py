@@ -217,7 +217,8 @@ def demo_run(req: Annotated[DemoRunRequest | None, Body(openapi_examples=RUN_EXA
     created = create_experiment(GoalRequest(goal=req.goal, current_price=req.current_price))
 
     run = DemoRun(created["id"], scenario)
-    agent = "Gemini" if created.get("source") == "gemini" else "the fallback agent"
+    agent = {"gemini": "Gemini", "groq": "Groq", "ollama": "Ollama"}.get(
+        created.get("source"), "the fallback agent")
     run.say(f"Experiment created: {len(created['arms'])} arms proposed by {agent}")
     _demos[run.experiment_id] = run
     threading.Thread(target=_orchestrate, args=(run, req), daemon=True,
