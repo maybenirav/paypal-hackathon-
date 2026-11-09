@@ -68,6 +68,12 @@ from app.sim_routes import router as sim_router  # noqa: E402  Person D: simulat
 app.include_router(sim_router)
 from app.demo_routes import router as demo_router  # noqa: E402  Person D: one-call Run demo
 app.include_router(demo_router)
+from app.backfill import router as backfill_router  # noqa: E402  day-zero PayPal history import
+app.include_router(backfill_router)
+from app.decision_log import record_decision, record_rollout, router as decisions_router  # noqa: E402
+app.include_router(decisions_router)
+from app.agent_tools import router as agent_tools_router  # noqa: E402  tools for outside agents
+app.include_router(agent_tools_router)
 init_db(app)
 from fastapi.responses import RedirectResponse  # noqa: E402
 
@@ -272,7 +278,9 @@ def experiment_decide(exp_id: str, gamma: float = 1.30, days: int | None = None)
         store.save(exp)
         _, rows, _ = _rows(exp, days)
         _record_memory(exp, rows)
-    return _decision_payload(d, exp.goal)
+    payload = _decision_payload(d, exp.goal)
+    record_decision(exp.id, payload)
+    return payload
 
 
 class AskRequest(BaseModel):
@@ -445,6 +453,7 @@ def rollout_approve(exp_id: str):
     exp.rollout["results"] = results
     exp.rollout["status"] = "approved"
     store.save(exp)
+    record_rollout(exp.id, exp.rollout)
     return exp.rollout
 
 
