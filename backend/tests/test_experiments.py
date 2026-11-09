@@ -72,3 +72,53 @@ def test_assistant_ranking_and_percent():
             {"arm_id": "b", "is_baseline": False, "conversion": 0.2}]
     assert ask("best conversion", rows)["rows"][0]["arm_id"] == "b"
     assert [r["arm_id"] for r in ask("conversion over 15%", rows)["rows"]] == ["b"]
+
+
+def _gemini(monkeypatch, reply):
+    from app import assistant
+    monkeypatch.setattr(assistant.llm, "enabled", lambda: True)
+
+    def fake(prompt, **kw):
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+    monkeypatch.setattr(assistant.llm, "generate", fake)
+
+
+ROWS = [{"arm_id": "base", "is_baseline": True, "churn": 0.10, "paid_conversion": 0.05, "mrr_per_visitor": 0.75},
+        {"arm_id": "x", "is_baseline": False, "churn": 0.30, "paid_conversion": 0.07, "mrr_per_visitor": 0.84},
+        {"arm_id": "y", "is_baseline": False, "churn": 0.05, "paid_conversion": 0.06, "mrr_per_visitor": 0.60}]
+
+
+def test_assistant_gemini_multi_filter_counts_from_real_rows(monkeypatch):
+    # Gemini picks the filters; which arms match is computed from the data, not trusted.
+    _gemini(monkeypatch, '{"filters": [{"metric": "churn", "op": "<", "value": 0.2},'
+                         ' {"metric": "paid_conversion", "op": ">", "value": 0.05}],'
+                         ' "sort": {"metric": "mrr_per_visitor", "desc": true},'
+                         ' "interpretation": "Arms that convert better without extra churn."}')
+    r = ask("which arms convert better than baseline without churning more?", ROWS)
+    assert r["source"] == "gemini"
+    assert [x["arm_id"] for x in r["rows"]] == ["y"]
+    assert len(r["filters"]) == 2 and r["sort"] == {"metric": "mrr_per_visitor", "desc": True}
+    assert "1 arm(s)" in r["answer"]
+
+
+def test_assistant_rejects_hallucinated_column_and_falls_back(monkeypatch):
+    _gemini(monkeypatch, '{"filters": [{"metric": "happiness", "op": ">", "value": 1}], "sort": null}')
+    r = ask("show arms with churn above baseline", ROWS)
+    assert r["source"] == "rules" and [x["arm_id"] for x in r["rows"]] == ["x"]
+
+
+def test_assistant_falls_back_when_gemini_down(monkeypatch):
+    _gemini(monkeypatch, RuntimeError("503"))
+    r = ask("best mrr per visitor", ROWS)
+    assert r["source"] == "rules" and r["rows"][0]["arm_id"] == "x"
+
+
+def test_assistant_rules_handle_guard_clause():
+    # Works without Gemini: the main comparison plus a "without more churn" guard.
+    r = ask("which arms earn more per visitor than baseline without more churn?", ROWS)
+    assert r["source"] == "rules"
+    assert r["filters"] == [{"metric": "mrr_per_visitor", "op": ">", "value": 0.75},
+                            {"metric": "churn", "op": "<", "value": 0.10}]
+    assert r["rows"] == []  # x earns more but churns more; y churns less but earns less

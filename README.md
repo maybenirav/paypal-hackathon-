@@ -20,11 +20,11 @@ The UI shows both counts at all times. Every Save Agent action was verified agai
 |---|---|
 | **PayPal Subscriptions API** | Plans per arm, subscriptions, webhooks (signature-verified), and Save Agent actions: suspend + scheduled activate, revise to a Lite or discount plan, cancel. Rollout lowers a price in place (`update-pricing-schemes`), or grandfathers existing subscribers and deactivates the losing plans. |
 | **APIMatic** | Every plan and subscription call goes through PayPal's APIMatic-generated **`paypal-server-sdk`** (`backend/app/paypal_sdk.py`). Running it against the sandbox, we found that the SDK drops `total_cycles: 0`, which makes every subscription expire after one payment. We fixed it in `plan_model` and added a regression test. |
-| **AG Grid** | The merchant workspace. The arms grid shows chance-to-win, MRR per visitor, credible intervals, traffic share and rollout mode, and the AI assistant filters and sorts it ("show arms with churn above baseline"). The Save Agent audit log lets the merchant override decisions inline. |
+| **AG Grid** | The merchant workspace, on AG Grid Community. **Ask the grid:** Gemini turns a question such as "which arms earn more per visitor than baseline without more churn?" into the grid's own column filter model and sort, so the merchant sees in the headers exactly what the AI did and can edit it (a rule parser takes over if Gemini is down; matching rows are always computed from the data). **Results grid:** baseline pinned on top, every arm shown against it, column groups (Decision / Funnel / Revenue / Retention & risk), custom cells for chance-to-win (with the 95% winner line), credible intervals and weekly retention sparklines, cells that flash when real KERNEL sign-ups land, guardrail breaches as tooltips, CSV export. **Save Agent log:** the merchant overrides the agent by editing the Offer cell (select editor), which makes the PayPal call and logs the override; quick search and a real-PayPal-only filter. |
 | **Bryntum Gantt** | Experiment timeline: design, plans published, guardrail checkpoints every 14 days, decision, rollout (`GET /experiments/{id}/timeline`). |
 | **KERNEL** | Cloud browsers log in as sandbox buyers and approve real checkouts and plan changes (`backend/app/kernel_bot.py`, `POST /experiments/{id}/kernel/checkout`). This is how the demo gets real sign-ups. |
 | **Render** | `render.yaml` sets up the API (with a persistent disk for SQLite), the web app, and a nightly cron for `POST /save/sweep`, which resumes ended pauses and handles failed payments. |
-| **Gemini** | Pricing arms from a goal, cancel-reason classification, and plain-English decision explanations. There is a fallback model, and deterministic templates if both models fail. |
+| **Gemini + Groq / Ollama** | Pricing arms from a goal, cancel-reason classification, ask-the-grid filters and plain-English decision explanations. Every configured provider joins a failover chain (Gemini, then a free Groq key, then a local Ollama model); one that is overloaded or slow is skipped for a minute, and the UI names the model that answered. Deterministic templates take over if all of them fail. |
 
 ## Run locally
 
@@ -32,7 +32,7 @@ The UI shows both counts at all times. Every Save Agent action was verified agai
 # backend
 cd backend
 pip install -r requirements.txt
-cp .env.example .env        # fill in PayPal sandbox, Gemini and KERNEL keys
+cp .env.example .env        # fill in PayPal sandbox, Gemini (and/or Groq / Ollama) and KERNEL keys
 python scripts/create_product.py   # once: prints PAYPAL_PRODUCT_ID
 uvicorn app.main:app --reload      # http://localhost:8000/docs
 pytest -q                          # 62 tests, no network needed
@@ -49,7 +49,7 @@ Storage: set `DATABASE_URL` to a Supabase Postgres (schema in `backend/db/schema
 
 ```
 frontend (Next.js, AG Grid, Bryntum)  ──►  FastAPI backend
-                                            ├─ agent/      Gemini: arms, explanations, cancel reasons (llm.py fallback chain)
+                                            ├─ agent/      LLM agents: arms, explanations, cancel reasons (llm.py: Gemini → Groq → Ollama failover)
                                             ├─ engine/     bayes.py (Beta-Binomial, Thompson), guardrails.py, readiness.py, ltv.py (projection only)
                                             ├─ save_agent  understand → decide → act → log
                                             ├─ paypal_sdk  APIMatic SDK for every Subscriptions call
