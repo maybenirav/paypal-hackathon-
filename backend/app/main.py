@@ -90,6 +90,8 @@ from app.decision_log import record_decision, record_rollout, router as decision
 app.include_router(decisions_router)
 from app.agent_tools import router as agent_tools_router  # noqa: E402  tools for outside agents
 app.include_router(agent_tools_router)
+from app.jobs import router as jobs_router  # noqa: E402  scheduled jobs (Render cron)
+app.include_router(jobs_router)
 init_db(app)
 from fastapi.responses import RedirectResponse  # noqa: E402
 
