@@ -10,7 +10,7 @@ type CohortRow = Cohort & Record<string, unknown>;
 
 // Retention heat: transparent at 0%, full accent at 100%, readable on the dark theme.
 const heat = (v: number | undefined): CellStyle =>
-  v === undefined ? {} : { backgroundColor: `rgba(79, 140, 255, ${0.08 + v * 0.62})`, ...(v > 0.55 ? { color: "#fff" } : {}) };
+  v === undefined ? {} : { backgroundColor: `rgba(38, 71, 216, ${0.06 + v * 0.7})`, ...(v > 0.5 ? { color: "#fff" } : {}) };
 
 export default function InsightsPanel({ experimentId }: { experimentId: string | null }) {
   const [data, setData] = useState<Backfill | null>(null);

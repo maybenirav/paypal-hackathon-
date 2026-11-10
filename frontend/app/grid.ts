@@ -1,14 +1,27 @@
 "use client";
 
-import { AllCommunityModule, ModuleRegistry, colorSchemeDarkBlue, themeQuartz } from "ag-grid-community";
+import { AllCommunityModule, ModuleRegistry, colorSchemeLight, themeQuartz } from "ag-grid-community";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-export const gridTheme = themeQuartz.withPart(colorSchemeDarkBlue).withParams({
-  backgroundColor: "#181f30",
-  headerBackgroundColor: "#141a29",
-  borderColor: "#2a3350",
-  accentColor: "#4f8cff",
+// "Paper" theme to match the scrapbook UI: ink borders, mono headers, ruled rows.
+export const gridTheme = themeQuartz.withPart(colorSchemeLight).withParams({
+  backgroundColor: "#fffdf8",
+  foregroundColor: "#151515",
+  headerBackgroundColor: "#f3efe4",
+  headerTextColor: "#151515",
+  headerFontFamily: "var(--font-mono-stack)",
+  headerFontWeight: 700,
+  headerFontSize: 11,
+  fontFamily: "var(--font-sans-stack)",
+  borderColor: "#151515",
+  rowBorder: { style: "dashed", width: 1, color: "#d9d4c7" },
+  oddRowBackgroundColor: "#fbf9f3",
+  accentColor: "#2647d8",
+  selectedRowBackgroundColor: "rgba(243, 194, 52, 0.25)",
+  rowHoverColor: "rgba(243, 194, 52, 0.18)",
+  wrapperBorderRadius: 0,
+  borderRadius: 0,
   fontSize: 13,
 });
 

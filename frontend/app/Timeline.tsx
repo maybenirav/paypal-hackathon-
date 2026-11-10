@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { BryntumGantt } from "@bryntum/gantt-react";
 import type { Timeline as TimelineData } from "./api";
 import "@bryntum/gantt/gantt.css";
-import "@bryntum/gantt/stockholm-dark.css";
+import "@bryntum/gantt/stockholm-light.css";
 import "@bryntum/gantt/fontawesome/css/fontawesome.css";
 import "@bryntum/gantt/fontawesome/css/solid.css";
 
