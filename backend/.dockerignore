@@ -1,0 +1,15 @@
+# Never ship secrets or local state into the image
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+kernel_logs/
+kernel-shots/
+tests/

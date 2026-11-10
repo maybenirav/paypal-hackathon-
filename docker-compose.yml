@@ -1,0 +1,50 @@
+# Whole PlanLab stack locally:   docker compose up --build
+#   web  http://localhost:3000     api  http://localhost:8000/docs
+# Scheduled jobs (what the Render crons run), on demand:
+#   docker compose run --rm jobs save-sweep        # or: checkpoint, history-refresh
+#
+# Keys come from backend/.env (git-ignored). If it sets DATABASE_URL, the API uses that
+# Supabase database; set PLANLAB_DB_DISABLED=true below to keep a local SQLite file instead.
+services:
+  api:
+    build: ./backend
+    image: planlab-api
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      PLANLAB_DB: /var/data/planlab.db
+      FRONTEND_URL: http://localhost:3000
+      JOBS_TOKEN: ${JOBS_TOKEN:-local-dev-token}
+    ports:
+      - "8000:8000"
+    volumes:
+      - planlab-data:/var/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    image: planlab-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  jobs:
+    image: planlab-api
+    profiles: ["jobs"]
+    entrypoint: ["python", "scripts/run_job.py"]
+    environment:
+      API_URL: http://api:8000
+      JOBS_TOKEN: ${JOBS_TOKEN:-local-dev-token}
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  planlab-data:
