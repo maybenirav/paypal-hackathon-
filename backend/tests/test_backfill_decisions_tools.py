@@ -44,6 +44,17 @@ def test_cohorts_hand_calc():
     assert s["active_last_month"] == 2 and s["arpu_last_month"] == 5.0
 
 
+def test_running_month_is_not_counted_as_churn():
+    # Data pulled on 10 Nov: October payers who are not due again yet must not look churned.
+    txs = [tx("A", "2026-09"), tx("A", "2026-10"), tx("B", "2026-10"), tx("A", "2026-11")]
+    pulled = datetime(2026, 11, 10, tzinfo=timezone.utc)
+    s = backfill.build_cohorts(txs, as_of=pulled)["summary"]
+    assert s["last_month_partial"] is True and s["churn_months"] == 1
+    assert s["avg_monthly_churn"] == 0.0            # only Sep -> Oct, where A stayed
+    full = backfill.build_cohorts(txs)["summary"]  # without as_of every month counts
+    assert full["avg_monthly_churn"] == 0.25         # Sep->Oct 0, Oct->Nov B left (1/2)
+
+
 def test_cohorts_empty_and_disputes():
     r = backfill.build_cohorts([tx("A", "2026-01", 5.0, "T1201")])
     assert r["customers"] == 0 and r["summary"]["disputes"] == 1
@@ -145,11 +156,11 @@ def test_why_with_no_match():
 
 def test_elastic_index_and_search(monkeypatch):
     monkeypatch.setenv("ELASTIC_URL", "http://es.test:9200")
-    monkeypatch.setenv("ELASTIC_API_KEY", "k")
+    monkeypatch.setenv("ELASTIC_API_KEY", "id:secret")   # base64("id:secret") = aWQ6c2VjcmV0
     stored = {}
 
     def put(url, json=None, headers=None, timeout=None):
-        assert headers["Authorization"] == "ApiKey k" and "/planlab-decisions/_doc/" in url
+        assert headers["Authorization"] == "ApiKey aWQ6c2VjcmV0" and "/planlab-decisions/_doc/" in url
         stored[json["id"]] = json
         return httpx.Response(201, json={"result": "created"})
 
@@ -209,3 +220,8 @@ def test_tools_run_end_to_end():
 def test_tool_errors():
     assert client.post("/agent/tools/nope", json={}).status_code == 404
     assert client.post("/agent/tools/get_arm_metrics", json={}).status_code == 422
+
+
+def test_elastic_key_encoding():
+    assert decision_log.encode_api_key("id:secret") == "aWQ6c2VjcmV0"
+    assert decision_log.encode_api_key("aWQ6c2VjcmV0") == "aWQ6c2VjcmV0"   # already encoded

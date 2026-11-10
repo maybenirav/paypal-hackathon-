@@ -15,6 +15,7 @@ depends on Elastic being up.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -48,9 +49,17 @@ def _es() -> tuple[str, dict] | None:
     if not url:
         return None
     headers = {"Content-Type": "application/json"}
-    if os.getenv("ELASTIC_API_KEY"):
-        headers["Authorization"] = f"ApiKey {os.getenv('ELASTIC_API_KEY')}"
+    key = (os.getenv("ELASTIC_API_KEY") or "").strip()
+    if key:
+        headers["Authorization"] = f"ApiKey {encode_api_key(key)}"
     return url.rstrip("/"), headers
+
+
+def encode_api_key(key: str) -> str:
+    """Elastic shows API keys as `id:api_key` or already base64-encoded; the header needs base64."""
+    if ":" in key:
+        return base64.b64encode(key.encode()).decode()
+    return key
 
 
 def _index() -> str:

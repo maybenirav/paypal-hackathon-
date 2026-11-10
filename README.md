@@ -21,7 +21,7 @@ The UI shows both counts at all times. Every Save Agent action was verified agai
 | Tool | What it does in PlanLab |
 |---|---|
 | **PayPal Subscriptions API** | Plans per arm, subscriptions, webhooks (signature-verified), and Save Agent actions: suspend + scheduled activate, revise to a Lite or discount plan, cancel. Rollout lowers a price in place (`update-pricing-schemes`), or grandfathers existing subscribers and deactivates the losing plans. |
-| **APIMatic** | Every plan and subscription call goes through PayPal's APIMatic-generated **`paypal-server-sdk`** (`backend/app/paypal_sdk.py`). Running it against the sandbox, we found that the SDK drops `total_cycles: 0`, which makes every subscription expire after one payment. We fixed it in `plan_model` and added a regression test. |
+| **APIMatic** | Every plan and subscription call goes through PayPal's APIMatic-generated **`paypal-server-sdk`** (`backend/app/paypal_sdk.py`). Running it against the sandbox, we found that the SDK drops `total_cycles: 0`, which makes every subscription expire after one payment. We fixed it in `plan_model` and added a regression test. We also validate PlanLab's own OpenAPI spec with APIMatic's Validation API (`backend/scripts/apimatic_validate.py`): 0 errors; renaming FastAPI's long operation ids cut the warnings from 20 to 4 ([report](docs/apimatic-validation.md)). |
 | **AG Grid** | The merchant workspace, on AG Grid Community. **Ask the grid:** Gemini turns a question such as "which arms earn more per visitor than baseline without more churn?" into the grid's own column filter model and sort, so the merchant sees in the headers exactly what the AI did and can edit it (a rule parser takes over if Gemini is down; matching rows are always computed from the data). **Results grid:** baseline pinned on top, every arm shown against it, column groups (Decision / Funnel / Revenue / Retention & risk), custom cells for chance-to-win (with the 95% winner line), credible intervals and weekly retention sparklines, cells that flash when real KERNEL sign-ups land, guardrail breaches as tooltips, CSV export. **Save Agent log:** the merchant overrides the agent by editing the Offer cell (select editor), which makes the PayPal call and logs the override; quick search and a real-PayPal-only filter. |
 | **Bryntum Gantt** | Experiment timeline: design, plans published, guardrail checkpoints every 14 days, decision, rollout (`GET /experiments/{id}/timeline`). |
 | **KERNEL** | Cloud browsers log in as sandbox buyers and approve real checkouts and plan changes (`backend/app/kernel_bot.py`, `POST /experiments/{id}/kernel/checkout`). This is how the demo gets real sign-ups. |
@@ -40,7 +40,7 @@ pip install -r requirements.txt
 cp .env.example .env        # fill in PayPal sandbox, Gemini (and/or Groq / Ollama) and KERNEL keys
 python scripts/create_product.py   # once: prints PAYPAL_PRODUCT_ID
 uvicorn app.main:app --reload      # http://localhost:8000/docs
-pytest -q                          # 101 tests, no network needed
+pytest -q                          # 106 tests, no network needed
 
 # frontend
 cd frontend
@@ -71,5 +71,5 @@ PayPal sandbox  ◄────────────────────�
 - A pricing test needs traffic. At a 10% conversion rate, detecting a 25% lift needs about 2,500 visitors per arm. PlanLab reports this instead of hiding it.
 - PayPal has no timed pause. We suspend, and the nightly sweep calls `activate` when the pause ends.
 - Moving an existing subscriber to a different plan requires their approval on PayPal. PlanLab never raises the price of an existing subscriber.
-- The 12-month import and Elastic search are tested against faked PayPal / Elastic responses; run the import against a sandbox account with "Transaction search" enabled before relying on it.
+- The 12-month import was run against our PayPal sandbox app (10 Nov 2026: 7 transactions, 41 plans). Sandbox history is short, so churn is reported only once a full month has passed. Elastic search is tested against faked responses until `ELASTIC_URL` is set.
 - The simulated clock replays time. Lifetime value is shown as a projection and is never used to pick a winner.
