@@ -102,7 +102,9 @@ def _month_name(i: int) -> str:
     return f"{i // 12:04d}-{i % 12 + 1:02d}"
 
 
-def build_cohorts(txs: list[dict]) -> dict:
+def build_cohorts(txs: list[dict], as_of: datetime | None = None) -> dict:
+    """`as_of` is when the data was pulled. If it falls inside the last month that has payments,
+    that month is still running: customers not yet due again must not count as churned."""
     payments: dict[str, set[int]] = defaultdict(set)
     revenue: dict[int, float] = defaultdict(float)
     refunds = disputes = n_payments = 0
@@ -146,9 +148,11 @@ def build_cohorts(txs: list[dict]) -> dict:
         cohorts.append({"cohort": _month_name(c), "size": len(members), "retention": retention})
 
     # Monthly churn: of customers who paid in month m, the share who did not pay in m+1.
-    # The last month is excluded because its next month has not happened yet.
+    # Only months whose next month is complete count; a still-running month would make every
+    # customer who is not due yet look churned.
+    partial = as_of is not None and _month_index(as_of.strftime("%Y-%m")) <= last
     churn_rates = []
-    for m in range(first, last):
+    for m in range(first, last - 1 if partial else last):
         active = [ms for ms in payments.values() if m in ms]
         if active:
             churn_rates.append(sum(1 for ms in active if m + 1 not in ms) / len(active))
@@ -163,6 +167,8 @@ def build_cohorts(txs: list[dict]) -> dict:
             "payments": n_payments, "refunds": refunds, "disputes": disputes,
             "refund_rate": round(refunds / n_payments, 4) if n_payments else 0.0,
             "avg_monthly_churn": round(sum(churn_rates) / len(churn_rates), 4) if churn_rates else None,
+            "churn_months": len(churn_rates),
+            "last_month_partial": partial,
             "active_last_month": active_last,
             "arpu_last_month": round(revenue.get(last, 0.0) / active_last, 2) if active_last else None,
         },
@@ -223,7 +229,7 @@ def backfill(months: int = Query(12, ge=1, le=36)):
                                      "(developer dashboard > your app > Features).") from e
         raise HTTPException(502, f"PayPal error {e.status}: {e.body[:300]}") from e
     return _store({"source": "paypal", "months": months, "imported_at": end.isoformat(),
-                   "transactions": len(txs), "plans": plans, **build_cohorts(txs)})
+                   "transactions": len(txs), "plans": plans, **build_cohorts(txs, as_of=end)})
 
 
 @router.post("/backfill/sample")
