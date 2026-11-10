@@ -46,3 +46,9 @@ def test_every_route_is_in_the_collection():
     for path, ops in app.openapi()["paths"].items():
         for method in ops:
             assert f"{method.upper()} {path}" in names
+
+
+def test_operation_ids_are_short_and_unique():
+    ids = [op["operationId"] for ops in app.openapi()["paths"].values() for op in ops.values()]
+    assert len(ids) == len(set(ids))
+    assert max(map(len, ids)) <= 40

@@ -55,7 +55,21 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="PlanLab: Pricing Agent, Save Agent & Math Engine", lifespan=lifespan)
+_op_ids: dict[str, int] = {}
+
+
+def _operation_id(route) -> str:
+    """Short operationIds (the function name), so generated SDKs and Postman get readable names.
+    FastAPI's default (`experiment_decide_experiments__exp_id__decide_post`) breaks APIMatic's
+    name-length rule."""
+    n = _op_ids.get(route.name, 0)
+    _op_ids[route.name] = n + 1
+    return route.name if n == 0 else f"{route.name}_{n + 1}"
+
+
+app = FastAPI(title="PlanLab: Pricing Agent, Save Agent & Math Engine", lifespan=lifespan,
+              description="AI pricing experiments and a Save Agent on PayPal Subscriptions.",
+              generate_unique_id_function=_operation_id)
 from app.paypal_routes import router as paypal_router  # noqa: E402
 app.include_router(paypal_router)
 from app.paypal_experiments import lookup_sub, router as paypal_exp_router, webhook_router  # noqa: E402
