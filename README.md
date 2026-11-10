@@ -40,7 +40,7 @@ pip install -r requirements.txt
 cp .env.example .env        # fill in PayPal sandbox, Gemini (and/or Groq / Ollama) and KERNEL keys
 python scripts/create_product.py   # once: prints PAYPAL_PRODUCT_ID
 uvicorn app.main:app --reload      # http://localhost:8000/docs
-pytest -q                          # 106 tests, no network needed
+pytest -q                          # 111 tests, no network needed
 
 # frontend
 cd frontend
@@ -49,6 +49,34 @@ npm run dev                        # http://localhost:3000
 ```
 
 Storage: set `DATABASE_URL` to a Supabase Postgres (schema in `backend/db/schema.sql`) to keep experiments, events and PayPal subscriptions there; without it, a local SQLite file (`PLANLAB_DB`) holds everything. An empty store is seeded with a labelled demo merchant on first start. Set `SAVE_AGENT_LIVE=true` to send Save Agent and rollout requests to the sandbox instead of logging them.
+
+### With Docker
+
+```bash
+docker compose up --build        # web http://localhost:3000 · api http://localhost:8000/docs
+docker compose --profile jobs run --rm jobs checkpoint    # run a scheduled job by hand
+```
+
+The API image reads `backend/.env`; the web image bakes `NEXT_PUBLIC_API_URL` in at build time.
+
+## Deploy to Render
+
+`render.yaml` is a Blueprint for the whole project, built from the same Dockerfiles
+(validated against Render's published Blueprint schema): Dashboard > New > Blueprint > this repo,
+then fill in the `sync: false` secrets.
+
+| Service | Type | What it runs |
+|---|---|---|
+| `planlab-api` | web (Docker) | FastAPI, with a 1 GB disk for SQLite; `/health` is the health check |
+| `planlab-web` | web (Docker) | Next.js standalone server |
+| `planlab-save-sweep` | cron, daily 03:00 UTC | Save Agent: resume ended pauses, handle failed payments and cancel intents |
+| `planlab-guardrail-checkpoint` | cron, every 6 h | Decision engine on every live experiment: pause risky arms, declare winners (rollout stays manual) |
+| `planlab-history-refresh` | cron, Mondays 04:30 UTC | Re-import PayPal history, only if the merchant connected PayPal |
+
+The crons run `backend/scripts/run_job.py` in the API image and call `POST /jobs/*` with a
+`JOBS_TOKEN` that Render generates and shares with the API, so the public cannot trigger them.
+`GET /jobs` shows the last result of each job. After the first deploy, add
+`<api-url>/webhooks/paypal` as a webhook in the PayPal developer dashboard and set `PAYPAL_WEBHOOK_ID`.
 
 ## Architecture
 

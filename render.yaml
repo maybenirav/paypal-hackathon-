@@ -1,22 +1,22 @@
-# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
-# Secrets marked sync: false are entered in the Render dashboard, never committed.
-# If Render gives the services different URLs, update the three onrender.com values below.
+# Render Blueprint for the whole of PlanLab: Dashboard -> New -> Blueprint -> pick this repo.
+# Every service is built from the Dockerfiles in this repo (the same images as docker-compose.yml).
+# Secrets marked `sync: false` are entered in the Render dashboard on first deploy, never committed.
+# If Render gives the services different URLs, update the onrender.com values below.
 services:
+  # ---- API: FastAPI, Save Agent, Pricing Agent, PayPal + KERNEL ----
   - type: web
     name: planlab-api
-    runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     healthCheckPath: /health
-    plan: starter              # disks need a paid plan; on free, drop `disk` and rely on SEED_DEMO
+    plan: starter              # a disk needs a paid plan; on free, drop `disk` and rely on SEED_DEMO / Supabase
+    autoDeploy: true
     disk:                      # keeps the SQLite database across deploys and restarts
       name: planlab-data
       mountPath: /var/data
       sizeGB: 1
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
       - key: PLANLAB_DB
         value: /var/data/planlab.db
       - key: SEED_DEMO
@@ -27,37 +27,88 @@ services:
         value: sandbox
       - key: PAYPAL_API_BASE
         value: https://api-m.sandbox.paypal.com
-      - key: FRONTEND_URL       # public URL of planlab-web
+      - key: FRONTEND_URL       # public URL of planlab-web (CORS + PayPal return pages)
         value: https://planlab-web.onrender.com
+      - key: JOBS_TOKEN         # shared with the cron services below; protects /jobs/*
+        generateValue: true
+      - key: LLM_PROVIDERS
+        value: gemini,groq
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
       - { key: DATABASE_URL, sync: false }        # Supabase Postgres; optional
       - { key: PAYPAL_CLIENT_ID, sync: false }
       - { key: PAYPAL_CLIENT_SECRET, sync: false }
       - { key: PAYPAL_PRODUCT_ID, sync: false }
-      - { key: PAYPAL_WEBHOOK_ID, sync: false }
+      - { key: PAYPAL_WEBHOOK_ID, sync: false }   # after adding <api-url>/webhooks/paypal in PayPal
       - { key: PAYPAL_SANDBOX_BUYER_1_EMAIL, sync: false }
       - { key: PAYPAL_SANDBOX_BUYER_1_PASSWORD, sync: false }
+      - { key: PAYPAL_SANDBOX_BUYER_2_EMAIL, sync: false }
+      - { key: PAYPAL_SANDBOX_BUYER_2_PASSWORD, sync: false }
+      - { key: PAYPAL_SANDBOX_BUYER_3_EMAIL, sync: false }
+      - { key: PAYPAL_SANDBOX_BUYER_3_PASSWORD, sync: false }
       - { key: GEMINI_API_KEY, sync: false }
+      - { key: GEMINI_MODEL, sync: false }
       - { key: GROQ_API_KEY, sync: false }        # free failover when Gemini is overloaded
       - { key: KERNEL_API_KEY, sync: false }
+      - { key: ELASTIC_URL, sync: false }         # optional: decision search in Elasticsearch
+      - { key: ELASTIC_API_KEY, sync: false }
 
+  # ---- Web app: Next.js workspace (AG Grid, Bryntum) ----
   - type: web
     name: planlab-web
-    runtime: node
-    rootDir: frontend
-    buildCommand: npm ci && npm run build
-    startCommand: npm start -- -p $PORT
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    healthCheckPath: /
+    plan: starter
+    autoDeploy: true
     envVars:
-      - key: NEXT_PUBLIC_API_URL  # baked in at build time: must be the API's public URL
+      # Render passes env vars to `docker build` as build args; the Dockerfile's ARG bakes this
+      # into the browser bundle, so it must be the API's public URL.
+      - key: NEXT_PUBLIC_API_URL
         value: https://planlab-api.onrender.com
 
-  # Nightly Save Agent sweep: reactivates ended pauses and handles new failed payments.
+  # ---- Scheduled jobs: the API image with a different command (scripts/run_job.py) ----
+  # Times are UTC. Each run is logged by the API: GET /jobs shows the last result of each.
+
+  # Nightly Save Agent sweep: resume ended pauses, handle new failed payments and cancel intents.
   - type: cron
     name: planlab-save-sweep
-    runtime: python
-    rootDir: backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     schedule: "0 3 * * *"
-    buildCommand: pip install httpx
-    startCommand: python -c "import os, httpx; print(httpx.post(os.environ['API_URL'] + '/save/sweep', timeout=120).text[:500])"
+    dockerCommand: python scripts/run_job.py save-sweep
     envVars:
       - key: API_URL
         value: https://planlab-api.onrender.com
+      - key: JOBS_TOKEN
+        fromService: { type: web, name: planlab-api, envVarKey: JOBS_TOKEN }
+
+  # Guardrail checkpoint every 6 hours: pause risky arms, declare winners (rollout stays manual).
+  - type: cron
+    name: planlab-guardrail-checkpoint
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    schedule: "15 */6 * * *"
+    dockerCommand: python scripts/run_job.py checkpoint
+    envVars:
+      - key: API_URL
+        value: https://planlab-api.onrender.com
+      - key: JOBS_TOKEN
+        fromService: { type: web, name: planlab-api, envVarKey: JOBS_TOKEN }
+
+  # Weekly PayPal history refresh (Mondays): only runs if the merchant connected PayPal.
+  - type: cron
+    name: planlab-history-refresh
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    schedule: "30 4 * * 1"
+    dockerCommand: python scripts/run_job.py history-refresh
+    envVars:
+      - key: API_URL
+        value: https://planlab-api.onrender.com
+      - key: JOBS_TOKEN
+        fromService: { type: web, name: planlab-api, envVarKey: JOBS_TOKEN }
