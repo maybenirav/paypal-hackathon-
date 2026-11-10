@@ -76,7 +76,7 @@ function Sparkline(p: ICellRendererParams<Row, number[], Ctx>) {
   return (
     <span className="spark" title={`Still subscribed after ${pts.length - 1} weeks: ${pct(last, 0)}`}>
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden>
-        <polyline fill="none" stroke={last < 0.8 ? "#ef5350" : "#4f8cff"} strokeWidth="1.6"
+        <polyline fill="none" stroke={last < 0.8 ? "#ff4d94" : "#2647d8"} strokeWidth="1.6"
           points={pts.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
       </svg>
       <span>{pct(last, 0)}</span>
