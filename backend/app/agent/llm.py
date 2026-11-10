@@ -30,11 +30,11 @@ from .. import config  # noqa: F401  (loads .env before keys are read)
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_URL = "https://api.groq.com/openai/v1"
 DEFAULTS = {"gemini": "gemini-flash-latest", "gemini_fallback": "gemini-flash-lite-latest",
-            "groq": "llama-3.3-70b-versatile", "ollama_url": "http://localhost:11434"}
+            "groq": "openai/gpt-oss-120b", "ollama_url": "http://localhost:11434"}
 FAILOVER_TIMEOUT = 6.0  # cap per attempt when another provider is still left to try
 
 log = logging.getLogger("planlab.llm")
-last_model: str | None = None      # e.g. "groq/llama-3.3-70b-versatile", for logs
+last_model: str | None = None      # e.g. "groq/openai/gpt-oss-120b", for logs
 _local = threading.local()          # which provider answered this thread's last call
 _cooldown: dict[str, float] = {}   # "provider/model" -> monotonic time it may be retried
 
