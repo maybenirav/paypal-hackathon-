@@ -13,6 +13,7 @@ in month m if they paid in that month.
 from __future__ import annotations
 
 import random
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
@@ -213,23 +214,77 @@ def _store(result: dict) -> dict:
     return result
 
 
+RETRIES = 3                 # attempts per 31-day window before it is skipped
+_sleep = time.sleep         # replaced in tests so they run instantly
+
+
+def _permanent(err: Exception) -> bool:
+    """Errors that retrying cannot fix (missing keys, no permission, bad request)."""
+    return isinstance(err, PayPalError) and err.status in (0, 400, 401, 403, 404, 422)
+
+
+def _friendly(err: Exception | None) -> str:
+    if isinstance(err, PayPalError):
+        if err.status in (500, 502, 503, 504):
+            return f"PayPal's sandbox is busy right now (error {err.status}). Please try again in a minute."
+        if err.status == 429:
+            return "PayPal is limiting requests right now. Please try again in a minute."
+        return f"PayPal returned error {err.status}: {err.body[:200]}"
+    return "Couldn't reach PayPal (network problem). Please check the connection and try again."
+
+
+def fetch_window_retry(start: datetime, end: datetime) -> list[dict]:
+    """fetch_window with retries: the sandbox's Transaction Search often answers 503 for a moment."""
+    last: Exception | None = None
+    for attempt in range(RETRIES):
+        try:
+            return fetch_window(start, end)
+        except Exception as err:   # PayPalError or a network error from the HTTP client
+            if _permanent(err):
+                raise
+            last = err
+            if attempt < RETRIES - 1:
+                _sleep(1.5 * (attempt + 1))
+    raise last  # type: ignore[misc]
+
+
 @router.post("/backfill")
 def backfill(months: int = Query(12, ge=1, le=36)):
     end = datetime.now(timezone.utc)
+    periods = windows(end, months)
     txs: list[dict] = []
+    failed = 0
+    first_err: Exception | None = None
+    for s, e in periods:
+        try:
+            txs.extend(fetch_window_retry(s, e))
+        except PayPalError as err:
+            if err.status == 0:
+                raise HTTPException(400, str(err)) from err
+            if err.status == 403:
+                raise HTTPException(403, "Transaction search is not enabled for this PayPal app "
+                                         "(developer dashboard > your app > Features).") from err
+            if _permanent(err):
+                raise HTTPException(502, _friendly(err)) from err
+            failed += 1
+            first_err = first_err or err
+        except Exception as err:   # network trouble: skip this window, keep the rest
+            failed += 1
+            first_err = first_err or err
+    if failed == len(periods):
+        raise HTTPException(503, _friendly(first_err))
     try:
-        for s, e in windows(end, months):
-            txs.extend(fetch_window(s, e))
         plans = fetch_plans()
-    except PayPalError as e:
-        if e.status == 0:
-            raise HTTPException(400, str(e)) from e
-        if e.status == 403:
-            raise HTTPException(403, "Transaction search is not enabled for this PayPal app "
-                                     "(developer dashboard > your app > Features).") from e
-        raise HTTPException(502, f"PayPal error {e.status}: {e.body[:300]}") from e
-    return _store({"source": "paypal", "months": months, "imported_at": end.isoformat(),
-                   "transactions": len(txs), "plans": plans, **build_cohorts(txs, as_of=end)})
+    except Exception:   # the plan list is a nice-to-have; never fail the import over it
+        plans = []
+    result = {"source": "paypal", "months": months, "imported_at": end.isoformat(),
+              "transactions": len(txs), "plans": plans,
+              "periods": len(periods), "periods_failed": failed, "partial": failed > 0,
+              **build_cohorts(txs, as_of=end)}
+    if failed:
+        result["warning"] = (f"Imported {len(periods) - failed} of {len(periods)} periods; PayPal was busy "
+                             f"for {failed}. Import again to fill the gap.")
+    return _store(result)
 
 
 @router.post("/backfill/sample")

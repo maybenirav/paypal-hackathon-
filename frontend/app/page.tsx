@@ -48,6 +48,8 @@ export default function Home() {
   const [price, setPrice] = useState(15);
   const [numArms, setNumArms] = useState(3);
   const [traffic, setTraffic] = useState(12000);
+  // True once the form differs from the experiment shown, so the sample-size box is not stale.
+  const [formEdited, setFormEdited] = useState(false);
   const [expId, setExpId] = useState<string | null>(null);
   const [created, setCreated] = useState<Experiment | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -114,7 +116,7 @@ export default function Home() {
   async function onGenerate() {
     const res = await run(() => createExperiment(goal, price, numArms, traffic));
     if (res) {
-      setCreated(res); setExpId(res.id); setDecision(null); setAnswer(null); setRollout(null); setJob(null);
+      setCreated(res); setExpId(res.id); setDecision(null); setAnswer(null); setRollout(null); setJob(null); setFormEdited(false);
       await load(res.id);
     }
   }
@@ -130,7 +132,7 @@ export default function Home() {
   const onPublish = () => run(async () => { await publishPlans(expId!); await after(); });
   const onKernel = () => run(async () => setJob(await kernelCheckout(expId!, 2)));
   const onReset = () => run(async () => {
-    const r = await resetDemo(); setExpId(r.id); setCreated(null); setDecision(null); setRollout(null);
+    const r = await resetDemo(); setExpId(r.id); setCreated(null); setDecision(null); setRollout(null); setFormEdited(false);
     setAnswer(null); setJob(null); await load(r.id);
   });
 
@@ -231,16 +233,19 @@ export default function Home() {
           <div className="tabs"><span className="tab black">Step 02</span><span className="tab pink">Pricing experiment</span></div>
           <div className="card">
             <h2>What&apos;s the goal? <span className="sub">in your own words</span></h2>
-            <textarea value={goal} onChange={(e) => setGoal(e.target.value)} />
+            <textarea value={goal} onChange={(e) => { setGoal(e.target.value); setFormEdited(true); }} />
             <div className="row">
-              <label>Monthly price ($)<input type="number" min={1} value={price} onChange={(e) => setPrice(+e.target.value)} /></label>
-              <label>Arms<input type="number" min={2} max={4} value={numArms} onChange={(e) => setNumArms(+e.target.value)} /></label>
-              <label>Checkout visitors / month<input type="number" min={1} value={traffic} onChange={(e) => setTraffic(+e.target.value)} /></label>
+              <label>Monthly price ($)<input type="number" min={1} value={price} onChange={(e) => { setPrice(+e.target.value); setFormEdited(true); }} /></label>
+              <label>Arms<input type="number" min={2} max={4} value={numArms} onChange={(e) => { setNumArms(+e.target.value); setFormEdited(true); }} /></label>
+              <label>Checkout visitors / month<input type="number" min={1} value={traffic} onChange={(e) => { setTraffic(+e.target.value); setFormEdited(true); }} /></label>
               <button disabled={busy || goal.length < 3} onClick={onGenerate}>Design experiment</button>
               <button className="ghost" disabled={busy} onClick={onReset}>Reset demo merchant</button>
             </div>
 
-            {ready && (
+            {ready && formEdited && (
+              <p className="note" style={{ marginTop: 12 }}>Press <b>Design experiment</b> to recalculate the sample size for these numbers.</p>
+            )}
+            {ready && !formEdited && (
               <div className={`callout ${ready.feasible === false ? "warn" : ""}`}>
                 <b>{ready.feasible === false ? "Not enough traffic yet." : "Sample size."}</b> {ready.message}
                 <div className="bar"><span style={{ width: `${Math.round(ready.progress * 100)}%` }} /></div>

@@ -7,6 +7,7 @@ export type Backfill = {
   customers: number; months_list?: string[]; cohorts: Cohort[];
   revenue: { month: string; revenue: number }[];
   plans: { id: string; name: string; status: string }[];
+  periods?: number; periods_failed?: number; partial?: boolean; warning?: string;
   summary: {
     payments: number; refunds: number; disputes: number; refund_rate?: number;
     avg_monthly_churn?: number | null; active_last_month?: number; arpu_last_month?: number | null;
