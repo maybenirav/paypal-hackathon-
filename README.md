@@ -8,6 +8,59 @@
 - **Every decision is explainable.** Each agent decision (pause an arm, declare a winner, roll out, a Save Agent offer) is logged; ask "why did arm B pause?" and get the answer with its numbers.
 - **Honest about sample size.** PlanLab tells a merchant how many visitors each arm needs and how many days their traffic takes to get there. If a test isn't feasible, it says so and points them to the Save Agent.
 
+## For judges: see it work in 5 minutes
+
+We know you have a lot of projects to get through, so here's the shortest path we'd take ourselves.
+
+**Live demo:** _Render link goes here_ · **Video:** _YouTube link goes here_
+
+### The path (no API keys needed)
+
+1. Open the app and hit **Start an experiment**.
+2. Leave the goal as it is and press **Design experiment**. With a Gemini key the AI designs the arms; without one it falls back to our built-in templates. Either way you get 3 arms that have already been checked against PayPal's plan rules.
+3. Press **Replay 60 days: risky arm**, then **Run analysis**. The guardrail stops the 7-day-trial arm and tells you why, with the numbers. This is the bit we care about most: the AI suggests, but the guardrails get the last word.
+4. In the results grid, type *churn above baseline* and press **Ask the grid**. The AI doesn't just answer, it sets AG Grid's own filters, so you can see exactly what it did and undo it.
+5. Scroll down to the timeline (Bryntum) to see the experiment as a plan: design, publish, checkpoints, decision, rollout.
+6. Try **Replay 60 days: winner** and **Run analysis** again to see a winner declared, then propose and approve the rollout.
+7. Open **History & why**, press **Load sample merchant** for 12 months of cohorts, and ask *why was the risky arm stopped?*
+8. In the **Save Agent**, type a cancel reason the way a real customer would and see which offer it picks, and why.
+
+### Why some of the data is simulated
+
+A real pricing test takes weeks and thousands of visitors. We had neither inside a hackathon. So we split it honestly: **sign-ups and payments are real PayPal sandbox transactions**, made by cloud-browser buyers through KERNEL, and **the 60 days after them are simulated** so you can see the whole test play out in a minute. Every number in the app is labelled: look for the *Real PayPal sandbox* and *Simulated time* badges at the top.
+
+### Run it yourself
+
+```bash
+# backend
+cd backend
+pip install -r requirements.txt
+cp .env.example .env            # works as-is; keys are optional (see below)
+uvicorn app.main:app --reload   # API docs: http://localhost:8000/docs
+
+# frontend, in a second terminal
+cd frontend
+npm install
+npm run dev                     # app: http://localhost:3000
+```
+
+Or run everything with `docker compose up --build`. Without keys, everything in the path above works, and any button that needs PayPal or KERNEL tells you exactly which key is missing instead of failing silently.
+
+### To see the real PayPal parts
+
+| What | What you need in `backend/.env` |
+|---|---|
+| Arms published as real PayPal billing plans | `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` from a sandbox app on developer.paypal.com, then run `python scripts/create_product.py` once and paste the `PAYPAL_PRODUCT_ID` it prints |
+| Real sign-ups by cloud-browser buyers | `KERNEL_API_KEY`, plus sandbox **Personal** buyer accounts in `PAYPAL_SANDBOX_BUYER_1_EMAIL` / `_PASSWORD` (and `_2_`, `_3_`) |
+| Import 12 months of history from PayPal | The PayPal keys above, with **Transaction Search** ticked under your app's Features |
+| AI-designed arms and plain-English explanations | `GEMINI_API_KEY` (falls back to Groq, then Ollama, then templates) |
+
+A few things that bit us, so they don't bite you:
+
+- **Use US sandbox buyers.** Our first buyers were created in India, and PayPal showed its "We're sorry" page right after login. US Personal accounts went straight through.
+- **Give the sandbox a minute.** It sometimes answers with a 503. PlanLab retries, and the 12-month import keeps whatever periods it got rather than failing outright.
+- **New payments take a while to appear in Transaction Search** (often a couple of hours), so a fresh sign-up shows up in the app straight away but in the imported history later.
+
 ## What is real and what is simulated
 
 | Real (PayPal sandbox) | Simulated, labelled `source: "simulated"` |
