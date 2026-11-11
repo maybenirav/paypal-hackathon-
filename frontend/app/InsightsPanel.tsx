@@ -58,6 +58,7 @@ export default function InsightsPanel({ experimentId }: { experimentId: string |
               {" "}refund rate {pct(s.refund_rate ?? null)} · ARPU last month {money(s.arpu_last_month ?? null)}
               {data.plans.length > 0 && ` · ${data.plans.length} PayPal plan(s)`}
             </p>
+            {data.warning && <p className="callout warn" role="status">{data.warning}</p>}
             <div style={{ height: Math.min(420, 56 + 42 * data.cohorts.length) }}>
               <AgGridReact<CohortRow> theme={gridTheme} rowData={data.cohorts as CohortRow[]} columnDefs={cols}
                 defaultColDef={{ sortable: false, resizable: true }} />
